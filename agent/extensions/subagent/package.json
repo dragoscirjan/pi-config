@@ -1,0 +1,17 @@
+{
+  "name": "subagent",
+  "version": "1.0.0",
+  "description": "Delegate tasks to specialized subagents with isolated context windows.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@types/twig": "^1.12.17",
+    "twig": "^3.0.0"
+  }
+}
