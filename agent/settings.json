@@ -1,1 +1,5 @@
-{}
+{
+  "extensions": [
+    "./extensions/active-models.ts"
+  ]
+}
