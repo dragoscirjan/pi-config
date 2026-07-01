@@ -1,4 +1,10 @@
 node_modules/
 agent/sessions/
 agent/auth.json
-agent/auth.json
+agent/mcp-cache.json
+agent/mcp-npx-cache.json
+agent/mcp-oauth/
+.web_stash.db
+.memory.jsonl
+.memory.json
+.memory.db
