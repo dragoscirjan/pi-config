@@ -8,3 +8,4 @@ agent/mcp-oauth/
 .memory.jsonl
 .memory.json
 .memory.db
+model-taxonomy.json

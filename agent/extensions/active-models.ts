@@ -20,7 +20,7 @@ type ParsedArgs = {
 	providers: string[];
 	grep: string;
 	limit: number;
-	sortBy: "provider" | "model" | "intel" | "price" | "context" | "max-out";
+	sortBy: "score" | "intelligence" | "speed" | "price" | "context";
 	desc: boolean;
 	minIntel: number;
 	maxIntel: number;
@@ -33,6 +33,8 @@ type Row = {
 	provider: string;
 	model: string;
 	intel: number;
+	speed: number;
+	score: number;
 	priceInput: number;
 	priceOutput: number;
 	contextWindow: number;
@@ -92,8 +94,8 @@ function parseArgs(raw: string): ParsedArgs {
 		providers: [],
 		grep: "",
 		limit: 0,
-		sortBy: "provider",
-		desc: false,
+		sortBy: "score",
+		desc: true,
 		minIntel: 0,
 		maxIntel: 100,
 		maxPrice: Number.POSITIVE_INFINITY,
@@ -129,10 +131,22 @@ function parseArgs(raw: string): ParsedArgs {
 				parsed.limit = Math.max(0, parseInt(v ?? "0", 10) || 0);
 				break;
 			}
-			case "--sort": {
+			case "--sort":
+			case "--sort-by": {
 				const v = (tokens[++i] ?? "").toLowerCase();
-				if (["provider", "model", "intel", "price", "context", "max-out"].includes(v)) {
-					parsed.sortBy = v as ParsedArgs["sortBy"];
+				const normalized =
+					v === "intel"
+						? "intelligence"
+						: v === "max-out"
+							? "context"
+							: v;
+				if (["score", "intelligence", "speed", "price", "context"].includes(normalized)) {
+					parsed.sortBy = normalized as ParsedArgs["sortBy"];
+				}
+				const maybeDir = (tokens[i + 1] ?? "").toLowerCase();
+				if (maybeDir === "asc" || maybeDir === "desc") {
+					parsed.desc = maybeDir === "desc";
+					i++;
 				}
 				break;
 			}
@@ -218,6 +232,14 @@ function getIntelHeuristic(modelId: string): number {
 	return 40;
 }
 
+function getSpeedHeuristic(modelId: string): number {
+	const name = modelId.toLowerCase();
+	if (["mini", "flash", "haiku", "8b", "phi", "nano"].some((k) => name.includes(k))) return 150;
+	if (["sonnet", "4o", "70b", "gemini-pro"].some((k) => name.includes(k))) return 70;
+	if (["opus", "o1", "405b", "fable"].some((k) => name.includes(k))) return 15;
+	return 40;
+}
+
 function getAuthenticatedProvidersFromAuthJson(): Set<string> {
 	const authPath = join(getAgentDir(), "auth.json");
 	if (!existsSync(authPath)) return new Set();
@@ -253,7 +275,7 @@ function usageText(): string {
 		"  --provider, -p <name>     Filter by provider (repeatable)",
 		"  --grep, -g <text>         Filter by text (provider/model)",
 		"  --limit, -n <int>         Limit rows (0 = all)",
-		"  --sort <field>            provider|model|intel|price|context|max-out",
+		"  --sort-by <field>         score|intelligence|speed|price|context [asc|desc]",
 		"  --desc / --asc            Sort direction",
 		"  --min-intel <0..100>",
 		"  --max-intel <0..100>",
@@ -263,8 +285,8 @@ function usageText(): string {
 		"",
 		"Examples:",
 		"  /active-models github",
-		"  /active-models --provider openrouter --max-price 5 --sort price",
-		"  /active-models --sort intel --desc --limit 20",
+		"  /active-models --provider openrouter --max-price 5 --sort-by price asc",
+		"  /active-models --sort-by intelligence desc --limit 20",
 	].join("\n");
 }
 
@@ -276,7 +298,7 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 				"--provider ",
 				"--grep ",
 				"--limit ",
-				"--sort ",
+				"--sort-by ",
 				"--desc",
 				"--asc",
 				"--min-intel ",
@@ -307,17 +329,27 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 			let rows = (ctx.modelRegistry.getAll() as ModelLike[])
 				.filter((m) => activeProviders.has(m.provider))
 				.map(
-					(m): Row => ({
-						provider: m.provider,
-						model: m.id,
-						intel: getIntelHeuristic(m.id),
-						priceInput: Number(m.cost?.input ?? 0),
-						priceOutput: Number(m.cost?.output ?? 0),
-						contextWindow: Number(m.contextWindow ?? 0),
-						maxOut: Number(m.maxTokens ?? 0),
-						thinking: Boolean(m.reasoning),
-						images: Array.isArray(m.input) && m.input.includes("image"),
-					}),
+					(m): Row => {
+						const intel = getIntelHeuristic(m.id);
+						const speed = getSpeedHeuristic(m.id);
+						const priceInput = Math.max(0, Number(m.cost?.input ?? 0));
+						const priceOutput = Math.max(0, Number(m.cost?.output ?? 0));
+						const contextWindow = Number(m.contextWindow ?? 0);
+						const score = intel * 1.5 + Math.min(speed, 200) * 0.1 + Math.log2(Math.max(8000, contextWindow)) - priceOutput;
+						return {
+							provider: m.provider,
+							model: m.id,
+							intel,
+							speed,
+							score,
+							priceInput,
+							priceOutput,
+							contextWindow,
+							maxOut: Number(m.maxTokens ?? 0),
+							thinking: Boolean(m.reasoning),
+							images: Array.isArray(m.input) && m.input.includes("image"),
+						};
+					},
 				);
 
 			if (parsed.providers.length > 0) {
@@ -344,14 +376,14 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 			rows.sort((a, b) => {
 				let cmp = 0;
 				switch (parsed.sortBy) {
-					case "provider":
-						cmp = a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model);
+					case "score":
+						cmp = a.score - b.score;
 						break;
-					case "model":
-						cmp = a.model.localeCompare(b.model) || a.provider.localeCompare(b.provider);
-						break;
-					case "intel":
+					case "intelligence":
 						cmp = a.intel - b.intel;
+						break;
+					case "speed":
+						cmp = a.speed - b.speed;
 						break;
 					case "price":
 						cmp = a.priceOutput - b.priceOutput;
@@ -359,10 +391,8 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 					case "context":
 						cmp = a.contextWindow - b.contextWindow;
 						break;
-					case "max-out":
-						cmp = a.maxOut - b.maxOut;
-						break;
 				}
+				if (cmp === 0) cmp = a.model.localeCompare(b.model);
 				return parsed.desc ? -cmp : cmp;
 			});
 

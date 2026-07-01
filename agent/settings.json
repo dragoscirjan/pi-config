@@ -1,5 +1,8 @@
 {
   "extensions": [
-    "./extensions/active-models.ts"
-  ]
+    "./extensions/active-models.ts",
+    "./extensions/model-recommend.ts"
+  ],
+  "defaultProvider": "github-copilot",
+  "defaultModel": "gpt-5.3-codex"
 }
