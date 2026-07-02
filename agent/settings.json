@@ -4,5 +4,6 @@
     "./extensions/model-recommend.ts"
   ],
   "defaultProvider": "github-copilot",
-  "defaultModel": "gpt-5.3-codex"
+  "defaultModel": "gpt-5.3-codex",
+  "lastChangelogVersion": "0.73.1"
 }

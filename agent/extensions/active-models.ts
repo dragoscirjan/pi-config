@@ -1,29 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
-
-type ModelLike = {
-	provider: string;
-	id: string;
-	contextWindow?: number;
-	maxTokens?: number;
-	reasoning?: boolean;
-	input?: Array<"text" | "image">;
-	cost?: {
-		input?: number;
-		output?: number;
-	};
-};
+import { type ModelLike, buildCostHintIndex, buildModelProfile } from "./model-profile";
 
 type ParsedArgs = {
 	help: boolean;
 	providers: string[];
 	grep: string;
 	limit: number;
-	sortBy: "score" | "intelligence" | "speed" | "price" | "context";
+	sortBy: "score" | "intelligence" | "reasoning" | "reliability" | "speed" | "price" | "context";
 	desc: boolean;
 	minIntel: number;
 	maxIntel: number;
+	minReasoning: number;
+	minReliability: number;
 	maxPrice: number;
 	minContext: number;
 	maxContext: number;
@@ -33,15 +23,22 @@ type Row = {
 	provider: string;
 	model: string;
 	intel: number;
+	reasoning: number;
+	reliability: number;
 	speed: number;
 	score: number;
 	priceInput: number;
 	priceOutput: number;
+	effectivePrice: number;
 	contextWindow: number;
 	maxOut: number;
-	thinking: boolean;
 	images: boolean;
+	priceEstimated: boolean;
 };
+
+function clamp(n: number, min: number, max: number): number {
+	return Math.max(min, Math.min(max, n));
+}
 
 function pad(value: string, width: number): string {
 	return value.length >= width ? value : value + " ".repeat(width - value.length);
@@ -81,9 +78,7 @@ function parseFloatSafe(value: string | undefined, fallback: number): number {
 function tokenize(raw: string): string[] {
 	const matches = raw.match(/"([^"\\]|\\.)*"|'([^'\\]|\\.)*'|\S+/g) ?? [];
 	return matches.map((t) => {
-		if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
-			return t.slice(1, -1);
-		}
+		if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) return t.slice(1, -1);
 		return t;
 	});
 }
@@ -98,6 +93,8 @@ function parseArgs(raw: string): ParsedArgs {
 		desc: true,
 		minIntel: 0,
 		maxIntel: 100,
+		minReasoning: 0,
+		minReliability: 0,
 		maxPrice: Number.POSITIVE_INFINITY,
 		minContext: 0,
 		maxContext: Number.POSITIVE_INFINITY,
@@ -105,6 +102,11 @@ function parseArgs(raw: string): ParsedArgs {
 
 	const free: string[] = [];
 	const tokens = tokenize(raw);
+
+	const pushProviders = (raw: string | undefined) => {
+		if (!raw) return;
+		for (const part of raw.split(",").map((p) => p.trim().toLowerCase()).filter(Boolean)) parsed.providers.push(part);
+	};
 
 	for (let i = 0; i < tokens.length; i++) {
 		const t = tokens[i];
@@ -114,9 +116,9 @@ function parseArgs(raw: string): ParsedArgs {
 				parsed.help = true;
 				break;
 			case "--provider":
+			case "--providers":
 			case "-p": {
-				const v = tokens[++i];
-				if (v) parsed.providers.push(v.toLowerCase());
+				pushProviders(tokens[++i]);
 				break;
 			}
 			case "--grep":
@@ -134,13 +136,8 @@ function parseArgs(raw: string): ParsedArgs {
 			case "--sort":
 			case "--sort-by": {
 				const v = (tokens[++i] ?? "").toLowerCase();
-				const normalized =
-					v === "intel"
-						? "intelligence"
-						: v === "max-out"
-							? "context"
-							: v;
-				if (["score", "intelligence", "speed", "price", "context"].includes(normalized)) {
+				const normalized = v === "intel" ? "intelligence" : v === "max-out" ? "context" : v;
+				if (["score", "intelligence", "reasoning", "reliability", "speed", "price", "context"].includes(normalized)) {
 					parsed.sortBy = normalized as ParsedArgs["sortBy"];
 				}
 				const maybeDir = (tokens[i + 1] ?? "").toLowerCase();
@@ -162,6 +159,12 @@ function parseArgs(raw: string): ParsedArgs {
 			case "--max-intel":
 				parsed.maxIntel = parseFloatSafe(tokens[++i], parsed.maxIntel);
 				break;
+			case "--min-reasoning":
+				parsed.minReasoning = parseFloatSafe(tokens[++i], parsed.minReasoning);
+				break;
+			case "--min-reliability":
+				parsed.minReliability = parseFloatSafe(tokens[++i], parsed.minReliability);
+				break;
 			case "--max-price":
 				parsed.maxPrice = parseFloatSafe(tokens[++i], parsed.maxPrice);
 				break;
@@ -180,87 +183,19 @@ function parseArgs(raw: string): ParsedArgs {
 	return parsed;
 }
 
-function getIntelHeuristic(modelId: string): number {
-	const name = modelId.toLowerCase();
-
-	if (
-		[
-			"o1",
-			"o3",
-			"gpt-5",
-			"claude-3-5",
-			"claude-4",
-			"claude-5",
-			"fable",
-			"gpt-4o",
-			"deepseek-v3",
-			"deepseek-r1",
-			"gemini-2.0",
-			"gemini-2.5",
-			"gemini-3",
-			"opus",
-		].some((k) => name.includes(k)) &&
-		!["mini", "lite", "flash", "nano", "8b", "nemotron"].some((k) => name.includes(k))
-	)
-		return 95;
-
-	if (["gpt-4", "llama-3.1-405b", "smaug", "sonnet"].some((k) => name.includes(k))) return 90;
-
-	if (
-		["llama-3.1-70b", "qwen2.5-72b", "deepseek-v2.5", "phi-4"].some((k) => name.includes(k)) &&
-		!name.includes("mini")
-	)
-		return 80;
-
-	if (
-		[
-			"haiku",
-			"flash",
-			"lite",
-			"mini",
-			"8b",
-			"llama-3.1-8b",
-			"phi-3",
-			"nano",
-			"nemotron",
-		].some((k) => name.includes(k))
-	)
-		return 55;
-
-	if (["coder", "qwen", "gemma"].some((k) => name.includes(k))) return 65;
-
-	return 40;
-}
-
-function getSpeedHeuristic(modelId: string): number {
-	const name = modelId.toLowerCase();
-	if (["mini", "flash", "haiku", "8b", "phi", "nano"].some((k) => name.includes(k))) return 150;
-	if (["sonnet", "4o", "70b", "gemini-pro"].some((k) => name.includes(k))) return 70;
-	if (["opus", "o1", "405b", "fable"].some((k) => name.includes(k))) return 15;
-	return 40;
-}
-
 function getAuthenticatedProvidersFromAuthJson(): Set<string> {
 	const authPath = join(getAgentDir(), "auth.json");
 	if (!existsSync(authPath)) return new Set();
-
 	try {
 		const raw = readFileSync(authPath, "utf-8");
 		const json = JSON.parse(raw) as Record<string, any>;
 		const providers = new Set<string>();
-
 		for (const [provider, cfg] of Object.entries(json)) {
 			if (!cfg || typeof cfg !== "object") continue;
-			const type = String(cfg.type ?? "").toLowerCase();
-
 			const hasApiKey = Boolean(cfg.key ?? cfg.apiKey);
 			const hasOAuthToken = Boolean(cfg.access ?? cfg.refresh ?? cfg.token);
-
-			if (type === "api_key" && hasApiKey) providers.add(provider);
-			else if (type === "oauth" && hasOAuthToken) providers.add(provider);
-			else if (hasApiKey || hasOAuthToken) providers.add(provider);
+			if (hasApiKey || hasOAuthToken) providers.add(provider);
 		}
-
 		return providers;
 	} catch {
 		return new Set();
@@ -272,45 +207,24 @@ function usageText(): string {
 		"/active-models [free-text] [options]",
 		"",
 		"Options:",
-		"  --provider, -p <name>     Filter by provider (repeatable)",
-		"  --grep, -g <text>         Filter by text (provider/model)",
-		"  --limit, -n <int>         Limit rows (0 = all)",
-		"  --sort-by <field>         score|intelligence|speed|price|context [asc|desc]",
-		"  --desc / --asc            Sort direction",
+		"  --provider, --providers, -p <name[,name]>   Filter by provider (repeatable; comma-separated supported)",
+		"  --grep, -g <text>             Filter by text (provider/model)",
+		"  --limit, -n <int>             Limit rows (0 = all)",
+		"  --sort-by <field>             score|intelligence|reasoning|reliability|speed|price|context [asc|desc]",
+		"  --desc / --asc                Sort direction",
 		"  --min-intel <0..100>",
 		"  --max-intel <0..100>",
-		"  --max-price <usd>         Max output price per 1M tokens",
+		"  --min-reasoning <0..100>",
+		"  --min-reliability <0..100>",
+		"  --max-price <usd>             Max output price per 1M tokens",
 		"  --min-context <n|nk|nm>",
 		"  --max-context <n|nk|nm>",
-		"",
-		"Examples:",
-		"  /active-models github",
-		"  /active-models --provider openrouter --max-price 5 --sort-by price asc",
-		"  /active-models --sort-by intelligence desc --limit 20",
 	].join("\n");
 }
 
 export default function activeModelsExtension(pi: ExtensionAPI) {
 	pi.registerCommand("active-models", {
-		description: "List models from providers authenticated in agent/auth.json",
-		getArgumentCompletions: (prefix) => {
-			const opts = [
-				"--provider ",
-				"--grep ",
-				"--limit ",
-				"--sort-by ",
-				"--desc",
-				"--asc",
-				"--min-intel ",
-				"--max-intel ",
-				"--max-price ",
-				"--min-context ",
-				"--max-context ",
-				"--help",
-			];
-			const items = opts.filter((o) => o.startsWith(prefix)).map((o) => ({ value: o, label: o.trim() }));
-			return items.length > 0 ? items : null;
-		},
+		description: "List models from authenticated providers using capability profiles (intel/reasoning/context/reliability/cost/speed)",
 		handler: async (args, ctx) => {
 			const parsed = parseArgs(args);
 			if (parsed.help) {
@@ -322,54 +236,57 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 
 			const activeProviders = getAuthenticatedProvidersFromAuthJson();
 			if (activeProviders.size === 0) {
-				ctx.ui.notify("No authenticated providers found in agent/auth.json", "info");
+				const msg = "No authenticated providers found in agent/auth.json";
+				if (ctx.hasUI) ctx.ui.notify(msg, "warning");
+				else console.log(msg);
 				return;
 			}
 
-			let rows = (ctx.modelRegistry.getAll() as ModelLike[])
+			const registryModels = ctx.modelRegistry.getAll() as ModelLike[];
+			const costHints = buildCostHintIndex(registryModels);
+			let rows = registryModels
 				.filter((m) => activeProviders.has(m.provider))
-				.map(
-					(m): Row => {
-						const intel = getIntelHeuristic(m.id);
-						const speed = getSpeedHeuristic(m.id);
-						const priceInput = Math.max(0, Number(m.cost?.input ?? 0));
-						const priceOutput = Math.max(0, Number(m.cost?.output ?? 0));
-						const contextWindow = Number(m.contextWindow ?? 0);
-						const score = intel * 1.5 + Math.min(speed, 200) * 0.1 + Math.log2(Math.max(8000, contextWindow)) - priceOutput;
-						return {
-							provider: m.provider,
-							model: m.id,
-							intel,
-							speed,
-							score,
-							priceInput,
-							priceOutput,
-							contextWindow,
-							maxOut: Number(m.maxTokens ?? 0),
-							thinking: Boolean(m.reasoning),
-							images: Array.isArray(m.input) && m.input.includes("image"),
-						};
-					},
-				);
+				.map((m): Row => {
+					const p = buildModelProfile(m, costHints);
+					const priceNorm = clamp(1 - Math.log1p(Math.max(0, p.effectivePrice)) / Math.log1p(50), 0, 1);
+					const ctxNorm = clamp((Math.log2(Math.max(8_000, p.context)) - 13) / 7, 0, 1);
+					const score = p.intel * 0.35 + p.reasoning * 0.2 + p.toolReliability * 0.25 + p.speed * 0.1 + priceNorm * 8 + ctxNorm * 8;
+					return {
+						provider: p.provider,
+						model: p.model,
+						intel: p.intel,
+						reasoning: p.reasoning,
+						reliability: p.toolReliability,
+						speed: p.speed,
+						score,
+						priceInput: p.costIn,
+						priceOutput: p.costOut,
+						effectivePrice: p.effectivePrice,
+						contextWindow: p.context,
+						maxOut: Number(m.maxTokens ?? 0),
+						images: p.supportsImages,
+						priceEstimated: p.priceEstimated,
+					};
+				});
 
-			if (parsed.providers.length > 0) {
-				rows = rows.filter((r) => parsed.providers.some((p) => r.provider.toLowerCase().includes(p)));
-			}
-			if (parsed.grep) {
-				rows = rows.filter((r) => `${r.provider}/${r.model}`.toLowerCase().includes(parsed.grep));
-			}
+			if (parsed.providers.length > 0) rows = rows.filter((r) => parsed.providers.some((p) => r.provider.toLowerCase().includes(p)));
+			if (parsed.grep) rows = rows.filter((r) => `${r.provider}/${r.model}`.toLowerCase().includes(parsed.grep));
 
 			rows = rows.filter(
 				(r) =>
 					r.intel >= parsed.minIntel &&
 					r.intel <= parsed.maxIntel &&
+					r.reasoning >= parsed.minReasoning &&
+					r.reliability >= parsed.minReliability &&
 					r.priceOutput <= parsed.maxPrice &&
 					r.contextWindow >= parsed.minContext &&
 					r.contextWindow <= parsed.maxContext,
 			);
 
 			if (rows.length === 0) {
-				ctx.ui.notify("No active models matched your filters.", "info");
+				const msg = "No active models matched your filters.";
+				if (ctx.hasUI) ctx.ui.notify(msg, "warning");
+				else console.log(msg);
 				return;
 			}
 
@@ -382,11 +299,17 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 					case "intelligence":
 						cmp = a.intel - b.intel;
 						break;
+					case "reasoning":
+						cmp = a.reasoning - b.reasoning;
+						break;
+					case "reliability":
+						cmp = a.reliability - b.reliability;
+						break;
 					case "speed":
 						cmp = a.speed - b.speed;
 						break;
 					case "price":
-						cmp = a.priceOutput - b.priceOutput;
+						cmp = a.effectivePrice - b.effectivePrice;
 						break;
 					case "context":
 						cmp = a.contextWindow - b.contextWindow;
@@ -401,13 +324,14 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 			const data = rows.map((r) => ({
 				provider: r.provider,
 				model: r.model,
-				intel: `${Math.round(r.intel)
-					.toString()
-					.padStart(3, " ")}≈`,
-				price: `${formatMoney(r.priceInput)} / ${formatMoney(r.priceOutput)}`,
+				intel: `${Math.round(r.intel)}`,
+				reasoning: `${Math.round(r.reasoning)}`,
+				reliability: `${Math.round(r.reliability)}`,
+				speed: `${Math.round(r.speed)} tps`,
+				price: `${formatMoney(r.priceInput)} / ${formatMoney(r.priceOutput)}${r.priceEstimated ? " ~" : ""}`,
 				context: formatTokenCount(r.contextWindow),
 				maxOut: formatTokenCount(r.maxOut),
-				thinking: r.thinking ? "yes" : "no",
+				score: r.score.toFixed(1),
 				images: r.images ? "yes" : "no",
 			}));
 
@@ -415,10 +339,13 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 				provider: Math.max("provider".length, ...data.map((d) => d.provider.length)),
 				model: Math.max("model".length, ...data.map((d) => d.model.length)),
 				intel: Math.max("intel".length, ...data.map((d) => d.intel.length)),
+				reasoning: Math.max("reason".length, ...data.map((d) => d.reasoning.length)),
+				reliability: Math.max("reliab".length, ...data.map((d) => d.reliability.length)),
+				speed: Math.max("speed".length, ...data.map((d) => d.speed.length)),
 				price: Math.max("price (in/out per 1M)".length, ...data.map((d) => d.price.length)),
 				context: Math.max("context".length, ...data.map((d) => d.context.length)),
 				maxOut: Math.max("max-out".length, ...data.map((d) => d.maxOut.length)),
-				thinking: Math.max("thinking".length, ...data.map((d) => d.thinking.length)),
+				score: Math.max("score".length, ...data.map((d) => d.score.length)),
 				images: Math.max("images".length, ...data.map((d) => d.images.length)),
 			};
 
@@ -429,13 +356,19 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 				"  " +
 				pad("intel", cols.intel) +
 				"  " +
+				pad("reason", cols.reasoning) +
+				"  " +
+				pad("reliab", cols.reliability) +
+				"  " +
+				pad("speed", cols.speed) +
+				"  " +
 				pad("price (in/out per 1M)", cols.price) +
 				"  " +
 				pad("context", cols.context) +
 				"  " +
 				pad("max-out", cols.maxOut) +
 				"  " +
-				pad("thinking", cols.thinking) +
+				pad("score", cols.score) +
 				"  " +
 				pad("images", cols.images);
 
@@ -447,20 +380,26 @@ export default function activeModelsExtension(pi: ExtensionAPI) {
 					"  " +
 					pad(d.intel, cols.intel) +
 					"  " +
+					pad(d.reasoning, cols.reasoning) +
+					"  " +
+					pad(d.reliability, cols.reliability) +
+					"  " +
+					pad(d.speed, cols.speed) +
+					"  " +
 					pad(d.price, cols.price) +
 					"  " +
 					pad(d.context, cols.context) +
 					"  " +
 					pad(d.maxOut, cols.maxOut) +
 					"  " +
-					pad(d.thinking, cols.thinking) +
+					pad(d.score, cols.score) +
 					"  " +
 					pad(d.images, cols.images),
 			);
 
 			const output = [
-				"Columns: provider | model | intel | price(in/out per 1M tokens) | context | max-out | thinking | images",
-				"Intel source: ≈ heuristic",
+				"Columns: provider | model | intel | reason | reliab | speed | price(in/out per 1M) | context | max-out | score | images",
+				"Price marker: '~' means estimated from other providers for the same model id", 
 				header,
 				"-".repeat(header.length),
 				...lines,
