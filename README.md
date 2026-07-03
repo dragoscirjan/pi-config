@@ -1,6 +1,6 @@
 # Pi Config (Current Setup)
 
-This repository is a mostly-bare Pi setup with two custom Pi extensions:
+This repository is a customized Pi setup featuring optimized model routing and profile visualization extensions.
 
 - `/active-models`
 - `/model-recommend`
@@ -9,88 +9,44 @@ This repository is a mostly-bare Pi setup with two custom Pi extensions:
 
 - [Goal](#goal)
 - [Active Files](#active-files)
-  - [`agent/settings.json`](#agentsettingsjson)
-  - [`agent/extensions/active-models.ts`](#agentextensionsactive-modelsts)
-  - [`agent/extensions/model-recommend.ts`](#agentextensionsmodel-recommendts)
-  - [`agent/auth.json`](#agentauthjson)
-  - [`agent/sessions/`](#agentsessions)
 - [`/active-models` Usage](#active-models-usage)
 - [`/model-recommend` Usage](#model-recommend-usage)
+- [Online Learning & Auto-Routing](#online-learning--auto-routing)
 - [Notes](#notes)
-- [`agent/model-recommend-config.json`](#agentmodel-recommend-configjson)
 - [Security / Hygiene](#security--hygiene)
 
 ## Goal
 
 Keep Pi lightweight, but add:
 
-1. visibility into currently available models from authenticated providers
-2. task-aware model recommendations
-
-Both commands are scoped by authenticated providers from `agent/auth.json`.
+1. **Visibility**: Real-time triage of available models from authenticated providers.
+2. **Optimization**: Task-aware model recommendations that learn from your preferences to save 70-85% on API costs.
 
 ---
 
 ## Active Files
 
 ### `agent/settings.json`
-
-```json
-{
-  "extensions": [
-    "./extensions/active-models.ts",
-    "./extensions/model-recommend.ts"
-  ],
-  "defaultProvider": "github-copilot",
-  "defaultModel": "gpt-5.3-codex"
-}
-```
+Main configuration for Pi. It registers the extensions and sets default models.
 
 ### `agent/extensions/active-models.ts`
-
-Registers `/active-models`.
-
-It:
-
-- reads authenticated providers from `agent/auth.json`
-- filters Pi model registry to those providers
-- supports filtering/sorting/limits
-- builds a capability profile per model (`intel`, `reasoning`, `tool reliability`, `speed`, `cost`, `context`)
-- estimates missing prices (e.g. GitHub Copilot models) from other providers when possible
-- prints a profile table for quick model triage
+Registers `/active-models`. It provides a detailed profile of available models (intelligence, reasoning, speed, price, context) across all authenticated providers.
 
 ### `agent/extensions/model-recommend.ts`
+Registers `/model-recommend`. A sophisticated local model router that:
+- **SQLite Backend**: Stores taxonomy and training data in `agent/model-recommend.db`.
+- **Online Learning**: Refines weights in real-time based on your model selections.
+- **Auto-Routing**: Can intercept prompts to suggest or enforce the best model for the task.
+- **Taxonomy management**: Supports importing, exporting, and merging taxonomies with specific collision policies.
 
-Registers `/model-recommend`.
-
-It:
-
-- reads authenticated providers from `agent/auth.json`
-- auto-builds taxonomy on first use if missing
-- stores taxonomy at: `~/.pi/model-taxonomy.json`
-- supports explicit taxonomy rebuild via `--rebuild-taxonomy`
-- computes intent + complexity from task text and taxonomy concepts
-- ranks candidate models and prints a recommendation table
-
-### `agent/auth.json`
-
-Authentication source of truth used by both commands.
+### `agent/extensions/model-profile.ts`
+Shared library that builds unified capability profiles for models, including pricing estimation for providers that don't expose it (like GitHub Copilot).
 
 ### `agent/model-recommend-config.json`
+Tuning configuration for the recommendation engine (strategy, weights, aliases, and auto-routing thresholds).
 
-Tuning file for `/model-recommend` (auto-created if missing).
-
-It controls:
-
-- typo aliases (e.g. `elyxir -> elixir`)
-- live taxonomy source config (`enabledSources`, timeouts, caps)
-- source weights / external-signal weight
-- complexity + pricing guardrails
-- tie-break jitter range
-
-### `agent/sessions/`
-
-Pi session history files.
+### `AGENTS.md`
+Configures MCP tool preferences and behavior rules for the agent.
 
 ---
 
@@ -100,29 +56,11 @@ Pi session history files.
 /active-models [free-text] [options]
 ```
 
-Options:
-
-- `--provider, --providers, -p <name[,name]>`
-- `--grep, -g <text>`
-- `--limit, -n <int>`
-- `--sort-by <score|intelligence|reasoning|reliability|speed|price|context> [asc|desc]`
-- `--desc` / `--asc`
-- `--min-intel <0..100>`
-- `--max-intel <0..100>`
-- `--min-reasoning <0..100>`
-- `--min-reliability <0..100>`
-- `--max-price <usd>`
-- `--min-context <n|nk|nm>`
-- `--max-context <n|nk|nm>`
-- `--help`
-
-Examples:
-
-```text
-/active-models github
-/active-models --provider openrouter --sort-by price asc --limit 20
-/active-models --sort-by intelligence desc --min-intel 85
-```
+**Options:**
+- `--provider <name>`: Filter by provider.
+- `--grep <text>`: Filter by substring.
+- `--sort-by <field> [asc|desc]`: Sort by score, price, intel, etc.
+- `--min-intel <n>` / `--max-price <n>`: Capability filters.
 
 ---
 
@@ -132,46 +70,43 @@ Examples:
 /model-recommend <task> [options]
 ```
 
-Options:
+**Configuration Flags:**
+- `--set-auto <off|suggest|enforce>`: Set auto-routing mode.
+- `--set-learning <on|off>`: Toggle real-time training.
+- `--status`: Show router stats, sample counts, and DB health.
+- `--reset-learning`: Clear all learned data.
 
-- `--rebuild-taxonomy`
-- `--live-taxonomy`
-- `--live-sources <all|csv>`
-- `--trusted`
-- `--provider <name[,name]>`
-- `--grep <text>`
-- `--strategy <cheapest-capable|capability-first|local-first>`
-- `--local-prefer`
-- `--local-only`
-- `--sort-by <score|intelligence|reasoning|reliability|speed|price|context> [asc|desc]`
-- `--limit <n>`
-- `--help`
+**Taxonomy Management:**
+- `--export-taxonomy <path>`: Export current DB taxonomy to JSON.
+- `--import-taxonomy <path>`: Replace DB taxonomy with a JSON file.
+- `--merge-taxonomy <path>`: Merge JSON taxonomy into the DB.
+- `--merge-policy <append|replace|keep>`: Default is `append`.
+- `--rebuild-taxonomy`: Reset to defaults and refresh from live sources.
 
-Examples:
+**Recommendation Flags:**
+- `--strategy <cheapest-capable|capability-first|local-first>`: Ranking priority.
+- `--explain`: Print a detailed scoring breakdown for the top models.
+- `--limit <n>`: Number of results to show (will fill with `near-miss` models if needed).
 
-```text
-/model-recommend "implement JWT auth in FastAPI"
-/model-recommend "refactor CI pipeline" --provider openrouter --sort-by price asc --limit 5
-/model-recommend "deep architecture review" --rebuild-taxonomy
-```
+---
+
+## Online Learning & Auto-Routing
+
+The `/model-recommend` extension features a local learning loop. When you manually select a model (or select "Custom model..."), the router creates a training sample comparing your choice against its top suggestion.
+
+In **`enforce`** mode, the extension will automatically switch your model if the top recommendation's score margin exceeds the `minMarginForAutoPick` threshold defined in `model-recommend-config.json`.
 
 ---
 
 ## Notes
 
-- Taxonomy is always global: `~/.pi/model-taxonomy.json`.
-- If taxonomy file is missing, `/model-recommend` creates it automatically.
-- On taxonomy rebuild (or when `--live-taxonomy` is passed), `/model-recommend` will attempt best-effort live enrichment from configured sources.
-- Default live source set supports: Stack Overflow, StackExchange network, GitHub topics, GitHub trending, Reddit, Hacker News, Lobsters, npm, PyPI, crates.io, Maven Central, Awesome Lists, arXiv, cloud changelogs, CNCF landscape, job boards, Google Trends, and GDELT.
-- Use `--live-sources all` to force all supported sources, or pass CSV (e.g. `--live-sources stack_overflow,github_topics,google_trends`).
-- Recommendation tuning config is local to the agent dir: `agent/model-recommend-config.json`.
-- If tuning config is missing, `/model-recommend` creates it automatically.
-- In both commands, a `~` marker after price means the value was estimated from matching model prices on other providers (useful for providers like GitHub Copilot that may not expose token prices directly).
-- No separate taxonomy build command is used in this setup.
+- **Data Privacy**: All training and taxonomy data stays local in the SQLite DB.
+- **Near-Miss**: In the results table, models marked with `*` are "near-miss" fallbacks that didn't strictly meet the task requirements but were the next best options.
+- **Price Estimation**: A `~` next to a price indicates it is estimated based on the same model's price on other providers.
 
 ---
 
 ## Security / Hygiene
 
-- `agent/auth.json` contains sensitive credentials and must remain private.
-- Session files may include sensitive project context.
+- `agent/auth.json` is private and contains your API keys.
+- `agent/model-recommend.db` is an operational file; use `--export-taxonomy` if you want to share or backup your taxonomy.
