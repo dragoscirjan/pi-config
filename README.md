@@ -36,17 +36,15 @@ Registers `/active-models`. It provides a detailed profile of available models (
 Registers `/model-recommend`. A sophisticated local model router that:
 - **SQLite Backend**: Stores taxonomy and training data in `agent/model-recommend.db`.
 - **Online Learning**: Refines weights in real-time based on your model selections.
-- **Auto-Routing**: Can intercept prompts to suggest or enforce the best model for the task.
-- **Taxonomy management**: Supports importing, exporting, and merging taxonomies with specific collision policies.
+- **Auto-Routing**: Can intercept prompts to suggest or enforce the best model for the task via the `before_agent_start` hook.
+- **Taxonomy Management**: Supports importing, exporting, and merging taxonomies with specific collision policies.
+- **Near-Miss Fallback**: Fills recommendation lists with close matches to ensure you always have options.
 
 ### `agent/extensions/model-profile.ts`
-Shared library that builds unified capability profiles for models, including pricing estimation for providers that don't expose it (like GitHub Copilot).
+Shared library that builds unified capability profiles for models, including pricing estimation for providers like GitHub Copilot.
 
 ### `agent/model-recommend-config.json`
 Tuning configuration for the recommendation engine (strategy, weights, aliases, and auto-routing thresholds).
-
-### `AGENTS.md`
-Configures MCP tool preferences and behavior rules for the agent.
 
 ---
 
@@ -57,10 +55,12 @@ Configures MCP tool preferences and behavior rules for the agent.
 ```
 
 **Options:**
-- `--provider <name>`: Filter by provider.
-- `--grep <text>`: Filter by substring.
-- `--sort-by <field> [asc|desc]`: Sort by score, price, intel, etc.
-- `--min-intel <n>` / `--max-price <n>`: Capability filters.
+- `--provider, -p <name[,name]>`: Filter by provider(s).
+- `--grep, -g <text>`: Filter by substring in provider/model name.
+- `--limit, -n <n>`: Limit number of results.
+- `--sort-by <field> [asc|desc]`: Sort by intelligence, reasoning, reliability, speed, price, or context.
+- `--min-intel <n>` / `--max-price <n>`: Capability and cost filters.
+- `--min-context <nk|nm>`: Filter by context window size.
 
 ---
 
@@ -71,22 +71,29 @@ Configures MCP tool preferences and behavior rules for the agent.
 ```
 
 **Configuration Flags:**
-- `--set-auto <off|suggest|enforce>`: Set auto-routing mode.
-- `--set-learning <on|off>`: Toggle real-time training.
-- `--status`: Show router stats, sample counts, and DB health.
-- `--reset-learning`: Clear all learned data.
+- `--set-auto <off|suggest|enforce>`: Configure auto-routing behavior.
+- `--set-learning <on|off>`: Toggle real-time training from selections.
+- `--status`: Show router health, training sample counts, and DB schema info.
+- `--reset-learning`: Clear all learned weights and samples.
 
 **Taxonomy Management:**
-- `--export-taxonomy <path>`: Export current DB taxonomy to JSON.
-- `--import-taxonomy <path>`: Replace DB taxonomy with a JSON file.
-- `--merge-taxonomy <path>`: Merge JSON taxonomy into the DB.
-- `--merge-policy <append|replace|keep>`: Default is `append`.
-- `--rebuild-taxonomy`: Reset to defaults and refresh from live sources.
+- `--export-taxonomy <path>`: Export the current SQLite taxonomy to a JSON file.
+- `--import-taxonomy <path>`: Replace the current taxonomy (destructive import).
+- `--merge-taxonomy <path>`: Merge a JSON taxonomy into the current one.
+- `--merge-policy <append|replace|keep>`: Collision policy for merging (default: `append`).
+- `--rebuild-taxonomy`: Reset taxonomy to defaults and optionally enrich.
+- `--live-taxonomy`: Incremental enrichment from live sources (GitHub topics, HN, etc.).
+- `--live-sources <all|csv>`: Override which sources to use for enrichment.
 
-**Recommendation Flags:**
-- `--strategy <cheapest-capable|capability-first|local-first>`: Ranking priority.
-- `--explain`: Print a detailed scoring breakdown for the top models.
-- `--limit <n>`: Number of results to show (will fill with `near-miss` models if needed).
+**Recommendation & Filtering:**
+- `--strategy <cheapest-capable|capability-first|local-first>`: Ranking bias.
+- `--provider <name[,name]>`: Restrict to specific providers.
+- `--grep <text>`: Filter models by name.
+- `--trusted`: Only show models from trusted authors.
+- `--local-prefer` / `--local-only`: Prioritize or restrict to local models.
+- `--limit <n>`: Result count (includes `near-miss` models marked with `*`).
+- `--explain`: Print a detailed scoring breakdown for candidates.
+- `--sort-by <field> [asc|desc]`: Sort the recommendation table.
 
 ---
 
@@ -101,7 +108,7 @@ In **`enforce`** mode, the extension will automatically switch your model if the
 ## Notes
 
 - **Data Privacy**: All training and taxonomy data stays local in the SQLite DB.
-- **Near-Miss**: In the results table, models marked with `*` are "near-miss" fallbacks that didn't strictly meet the task requirements but were the next best options.
+- **Near-Miss**: In the results table, models marked with `*` are "near-miss" fallbacks that didn't strictly meet the StageA constraints but are shown for reference.
 - **Price Estimation**: A `~` next to a price indicates it is estimated based on the same model's price on other providers.
 
 ---
