@@ -2,19 +2,6 @@
 
 This repository is a customized Pi setup featuring optimized model routing and profile visualization extensions.
 
-- `/active-models`
-- `/model-recommend`
-
-## Table of Contents
-
-- [Goal](#goal)
-- [Active Files](#active-files)
-- [`/active-models` Usage](#active-models-usage)
-- [`/model-recommend` Usage](#model-recommend-usage)
-- [Online Learning & Auto-Routing](#online-learning--auto-routing)
-- [Notes](#notes)
-- [Security / Hygiene](#security--hygiene)
-
 ## Goal
 
 Keep Pi lightweight, but add:
@@ -24,27 +11,44 @@ Keep Pi lightweight, but add:
 
 ---
 
-## Active Files
+## Extensions
 
-### `agent/settings.json`
-Main configuration for Pi. It registers the extensions and sets default models.
+### `/active-models`
+**File**: `agent/extensions/active-models.ts`
+Provides a comprehensive view of all available models from your authenticated providers (found in `agent/auth.json`).
+- **Capability Profiles**: Shows intelligence, reasoning, speed, price, and context window.
+- **Triage**: Sort and filter models to find exactly what you need for a specific task.
+- **Price Estimation**: Estimates costs for providers like GitHub Copilot that don't expose them directly.
 
-### `agent/extensions/active-models.ts`
-Registers `/active-models`. It provides a detailed profile of available models (intelligence, reasoning, speed, price, context) across all authenticated providers.
+### `/model-recommend`
+**File**: `agent/extensions/model-recommend.ts`
+A sophisticated, "trained" model router that optimizes model choice based on task complexity and user preference.
+- **Local Learning**: Trains a pairwise preference model in real-time based on which models you pick.
+- **Auto-Routing**: Can suggest or automatically switch models per-prompt via the `before_agent_start` hook.
+- **Taxonomy Driven**: Uses a concept-based taxonomy (stored in SQLite) to analyze task intent and complexity.
+- **Portability**: Full support for importing, exporting, and merging taxonomies across different environments.
 
-### `agent/extensions/model-recommend.ts`
-Registers `/model-recommend`. A sophisticated local model router that:
-- **SQLite Backend**: Stores taxonomy and training data in `agent/model-recommend.db`.
-- **Online Learning**: Refines weights in real-time based on your model selections.
-- **Auto-Routing**: Can intercept prompts to suggest or enforce the best model for the task via the `before_agent_start` hook.
-- **Taxonomy Management**: Supports importing, exporting, and merging taxonomies with specific collision policies.
-- **Near-Miss Fallback**: Fills recommendation lists with close matches to ensure you always have options.
+---
+
+## Shared Components & Config
 
 ### `agent/extensions/model-profile.ts`
-Shared library that builds unified capability profiles for models, including pricing estimation for providers like GitHub Copilot.
+A shared library that builds the unified capability profiles used by both `/active-models` and `/model-recommend`.
+
+### `agent/model-recommend.db` (SQLite)
+The operational database for the router. It stores:
+- **Taxonomy**: Categories, concepts, and terms.
+- **Learning Data**: Pairwise training samples and calculated weights.
+- **Settings**: Persistent router settings and database migrations.
 
 ### `agent/model-recommend-config.json`
-Tuning configuration for the recommendation engine (strategy, weights, aliases, and auto-routing thresholds).
+Human-editable tuning for the router, including:
+- Capability thresholds and relaxation logic.
+- Cost/Speed weights for different ranking strategies.
+- Auto-routing confidence margins.
+
+### `agent/settings.json`
+Registers the extensions and sets the global default model/provider for the agent.
 
 ---
 
@@ -54,13 +58,11 @@ Tuning configuration for the recommendation engine (strategy, weights, aliases, 
 /active-models [free-text] [options]
 ```
 
-**Options:**
+**Common Options:**
 - `--provider, -p <name[,name]>`: Filter by provider(s).
-- `--grep, -g <text>`: Filter by substring in provider/model name.
-- `--limit, -n <n>`: Limit number of results.
+- `--grep, -g <text>`: Filter by name substring.
 - `--sort-by <field> [asc|desc]`: Sort by intelligence, reasoning, reliability, speed, price, or context.
-- `--min-intel <n>` / `--max-price <n>`: Capability and cost filters.
-- `--min-context <nk|nm>`: Filter by context window size.
+- `--min-intel <n>` / `--max-price <n>`: Filter by minimum capability or maximum cost.
 
 ---
 
@@ -70,50 +72,38 @@ Tuning configuration for the recommendation engine (strategy, weights, aliases, 
 /model-recommend <task> [options]
 ```
 
-**Configuration Flags:**
-- `--set-auto <off|suggest|enforce>`: Configure auto-routing behavior.
-- `--set-learning <on|off>`: Toggle real-time training from selections.
-- `--status`: Show router health, training sample counts, and DB schema info.
-- `--reset-learning`: Clear all learned weights and samples.
+**Router Control:**
+- `--set-auto <off|suggest|enforce>`: Configure how the router intercepts prompts.
+- `--set-learning <on|off>`: Enable or disable real-time training.
+- `--status`: Display router health, training counts, and DB info.
+- `--reset-learning`: Wipe all learned weights and start over.
 
-**Taxonomy Management:**
-- `--export-taxonomy <path>`: Export the current SQLite taxonomy to a JSON file.
-- `--import-taxonomy <path>`: Replace the current taxonomy (destructive import).
-- `--merge-taxonomy <path>`: Merge a JSON taxonomy into the current one.
-- `--merge-policy <append|replace|keep>`: Collision policy for merging (default: `append`).
-- `--rebuild-taxonomy`: Reset taxonomy to defaults and optionally enrich.
-- `--live-taxonomy`: Incremental enrichment from live sources (GitHub topics, HN, etc.).
-- `--live-sources <all|csv>`: Override which sources to use for enrichment.
+**Taxonomy & Portability:**
+- `--export-taxonomy <path>`: Export current taxonomy to a JSON file.
+- `--import-taxonomy <path>`: Replace the database taxonomy with a JSON file.
+- `--merge-taxonomy <path>`: Merge a JSON taxonomy into the database.
+- `--merge-policy <append|replace|keep>`: Collision policy (default: `append`).
+- `--rebuild-taxonomy`: Clean reset to defaults followed by live enrichment.
 
-**Recommendation & Filtering:**
-- `--strategy <cheapest-capable|capability-first|local-first>`: Ranking bias.
-- `--provider <name[,name]>`: Restrict to specific providers.
-- `--grep <text>`: Filter models by name.
-- `--trusted`: Only show models from trusted authors.
-- `--local-prefer` / `--local-only`: Prioritize or restrict to local models.
-- `--limit <n>`: Result count (includes `near-miss` models marked with `*`).
-- `--explain`: Print a detailed scoring breakdown for candidates.
-- `--sort-by <field> [asc|desc]`: Sort the recommendation table.
+**Recommendation Logic:**
+- `--strategy <cheapest-capable|capability-first|local-first>`: Choose ranking bias.
+- `--explain`: See a detailed breakdown of how each model was scored.
+- `--limit <n>`: Show top $n$ models (includes `near-miss` models marked with `*`).
 
 ---
 
 ## Online Learning & Auto-Routing
 
-The `/model-recommend` extension features a local learning loop. When you manually select a model (or select "Custom model..."), the router creates a training sample comparing your choice against its top suggestion.
-
-In **`enforce`** mode, the extension will automatically switch your model if the top recommendation's score margin exceeds the `minMarginForAutoPick` threshold defined in `model-recommend-config.json`.
-
----
-
-## Notes
-
-- **Data Privacy**: All training and taxonomy data stays local in the SQLite DB.
-- **Near-Miss**: In the results table, models marked with `*` are "near-miss" fallbacks that didn't strictly meet the StageA constraints but are shown for reference.
-- **Price Estimation**: A `~` next to a price indicates it is estimated based on the same model's price on other providers.
+The router implements a **"Train as you go"** strategy:
+1. **Analyze**: It identifies task requirements (StageA constraints).
+2. **Suggest**: It recommends the best model.
+3. **Learn**: When you pick a model, it logs a "win" for that model's features in that context.
+4. **Enforce**: Once it has enough samples, in `enforce` mode, it will auto-pick models when the score margin is high enough.
 
 ---
 
-## Security / Hygiene
+## Security & Hygiene
 
-- `agent/auth.json` is private and contains your API keys.
-- `agent/model-recommend.db` is an operational file; use `--export-taxonomy` if you want to share or backup your taxonomy.
+- **Privacy**: All training data, weights, and taxonomy samples are stored **locally** in `agent/model-recommend.db`. No data is sent to external routing services.
+- **API Keys**: Stored in `agent/auth.json`. Never commit this file.
+- **Estimated Prices**: Prices marked with `~` are estimates based on cross-provider matching.
