@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastUpdated": "2026-07-02T00:00:00Z",
+  "lastUpdated": "2026-07-03T22:57:15.095Z",
   "aliases": {
     "elyxir": [
       "elixir"
@@ -91,6 +91,17 @@
       "job_boards": 0.6,
       "google_trends": 0.65,
       "gdelt": 0.6
+    }
+  },
+  "router": {
+    "autoMode": "suggest",
+    "learnEnabled": true,
+    "minMarginForAutoPick": 6,
+    "askOutcomeFeedback": false,
+    "learning": {
+      "maxAlpha": 0.45,
+      "alphaWarmupSamples": 200,
+      "pairwiseStep": 1
     }
   },
   "defaults": {

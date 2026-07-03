@@ -3,8 +3,8 @@
     "./extensions/active-models.ts",
     "./extensions/model-recommend.ts"
   ],
-  "defaultProvider": "github-copilot",
-  "defaultModel": "gpt-5.3-codex",
+  "defaultProvider": "openrouter",
+  "defaultModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
   "lastChangelogVersion": "0.73.1",
   "packages": [
     "git:github.com/nicobailon/pi-mcp-adapter"

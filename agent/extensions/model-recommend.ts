@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { getAgentDir, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { type ModelLike as RegistryModelLike, buildCostHintIndex, buildModelProfile } from "./model-profile";
 
@@ -23,6 +24,13 @@ type RecommendConfig = {
 		requestTimeoutMs: number;
 		externalCategoryWeight: number;
 		sourceWeights: Record<string, number>;
+	};
+	router: {
+		autoMode: "off" | "suggest" | "enforce";
+		learnEnabled: boolean;
+		minMarginForAutoPick: number;
+		askOutcomeFeedback: boolean;
+		learning: { maxAlpha: number; alphaWarmupSamples: number; pairwiseStep: number };
 	};
 	defaults: {
 		minIntelForComplexCheap: number;
@@ -73,6 +81,14 @@ type RecommendOptions = {
 	limit: number;
 	help: boolean;
 	explain: boolean;
+	autoModeArg?: "off" | "suggest" | "enforce";
+	learningModeArg?: "on" | "off";
+	status: boolean;
+	resetLearning: boolean;
+	exportTaxonomyPath?: string;
+	importTaxonomyPath?: string;
+	mergeTaxonomyPath?: string;
+	mergePolicy: "append" | "replace" | "keep";
 };
 
 type TaxonomyState = {
@@ -310,6 +326,17 @@ const DEFAULT_CONFIG: RecommendConfig = {
 			gdelt: 0.6,
 		},
 	},
+	router: {
+		autoMode: "off",
+		learnEnabled: true,
+		minMarginForAutoPick: 6,
+		askOutcomeFeedback: false,
+		learning: {
+			maxAlpha: 0.45,
+			alphaWarmupSamples: 200,
+			pairwiseStep: 1,
+		},
+	},
 	defaults: {
 		minIntelForComplexCheap: 72,
 		cheapWeightCap: 1.9,
@@ -399,6 +426,14 @@ function parseRecommendArgs(raw: string): RecommendOptions {
 		limit: 10,
 		help: false,
 		explain: false,
+		autoModeArg: undefined,
+		learningModeArg: undefined,
+		status: false,
+		resetLearning: false,
+		exportTaxonomyPath: undefined,
+		importTaxonomyPath: undefined,
+		mergeTaxonomyPath: undefined,
+		mergePolicy: "append",
 	};
 	const free: string[] = [];
 
@@ -417,6 +452,36 @@ function parseRecommendArgs(raw: string): RecommendOptions {
 			case "--rebuild-taxonomy":
 				opts.rebuildTaxonomy = true;
 				break;
+			case "--set-auto": {
+				const mode = (tokens[++i] ?? "").toLowerCase();
+				if (mode === "off" || mode === "suggest" || mode === "enforce") opts.autoModeArg = mode;
+				break;
+			}
+			case "--set-learning": {
+				const mode = (tokens[++i] ?? "").toLowerCase();
+				if (mode === "on" || mode === "off") opts.learningModeArg = mode;
+				break;
+			}
+			case "--status":
+				opts.status = true;
+				break;
+			case "--reset-learning":
+				opts.resetLearning = true;
+				break;
+			case "--export-taxonomy":
+				opts.exportTaxonomyPath = tokens[++i];
+				break;
+			case "--import-taxonomy":
+				opts.importTaxonomyPath = tokens[++i];
+				break;
+			case "--merge-taxonomy":
+				opts.mergeTaxonomyPath = tokens[++i];
+				break;
+			case "--merge-policy": {
+				const policy = (tokens[++i] ?? "").toLowerCase();
+				if (policy === "append" || policy === "replace" || policy === "keep") opts.mergePolicy = policy;
+				break;
+			}
 			case "--trusted":
 				opts.trusted = true;
 				break;
@@ -568,6 +633,8 @@ function createConfigSnapshot(): RecommendConfig {
 		aliases: JSON.parse(JSON.stringify(DEFAULT_CONFIG.aliases)) as RecommendConfig["aliases"],
 		skillWeights: JSON.parse(JSON.stringify(DEFAULT_CONFIG.skillWeights)) as RecommendConfig["skillWeights"],
 		liveTaxonomy: JSON.parse(JSON.stringify(DEFAULT_CONFIG.liveTaxonomy)) as RecommendConfig["liveTaxonomy"],
+		router: JSON.parse(JSON.stringify(DEFAULT_CONFIG.router)) as RecommendConfig["router"],
+		defaults: JSON.parse(JSON.stringify(DEFAULT_CONFIG.defaults)) as RecommendConfig["defaults"],
 	};
 }
 
@@ -888,37 +955,181 @@ async function enrichTaxonomyWithLiveSignals(taxonomy: Taxonomy, config: Recomme
 	return { taxonomy: copy, liveSources, enriched: liveSources.length > 0 };
 }
 
-async function ensureTaxonomy(rebuild: boolean, liveTaxonomy: boolean, config: RecommendConfig, liveSourceOverride?: string): Promise<TaxonomyState> {
-	const path = getTaxonomyPath();
-	let rebuilt = false;
+function isTaxonomyEmptyInDb(): boolean {
+	const row = getRouterDb().prepare("SELECT COUNT(*) AS c FROM router_taxonomy_categories").get() as { c?: number } | undefined;
+	return Number(row?.c ?? 0) === 0;
+}
 
-	if (rebuild || !existsSync(path)) {
-		mkdirSync(dirname(path), { recursive: true });
-		writeFileSync(path, JSON.stringify(createTaxonomySnapshot(), null, 2));
-		rebuilt = true;
-	}
-
-	let taxonomy: Taxonomy;
+function writeTaxonomyToDb(taxonomy: Taxonomy): void {
+	const db = getRouterDb();
+	db.exec("BEGIN IMMEDIATE");
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as Taxonomy;
-		taxonomy = parsed?.categories && typeof parsed.categories === "object" ? parsed : createTaxonomySnapshot();
+		db.prepare("DELETE FROM router_taxonomy_terms").run();
+		db.prepare("DELETE FROM router_taxonomy_categories").run();
+		const insertCategory = db.prepare("INSERT INTO router_taxonomy_categories(name, weight) VALUES(?, ?)");
+		const insertTerm = db.prepare("INSERT INTO router_taxonomy_terms(category_name, concept_name, term) VALUES(?, ?, ?)");
+		for (const [categoryName, category] of Object.entries(taxonomy.categories ?? {})) {
+			insertCategory.run(categoryName, Number(category.weight ?? 1));
+			for (const [conceptName, terms] of Object.entries(category.concepts ?? {})) {
+				for (const term of terms ?? []) {
+					const normalized = normalizeText(term);
+					if (!normalized) continue;
+					insertTerm.run(categoryName, conceptName, normalized);
+				}
+			}
+		}
+		db.exec("COMMIT");
+	} catch (error) {
+		db.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function readTaxonomyFromDb(): Taxonomy {
+	const db = getRouterDb();
+	const categoriesRows = db.prepare("SELECT name, weight FROM router_taxonomy_categories ORDER BY name").all() as Array<{ name: string; weight: number }>;
+	const termRows = db
+		.prepare("SELECT category_name, concept_name, term FROM router_taxonomy_terms ORDER BY category_name, concept_name, term")
+		.all() as Array<{ category_name: string; concept_name: string; term: string }>;
+	const categories: Taxonomy["categories"] = {};
+	for (const row of categoriesRows) categories[row.name] = { weight: Number(row.weight ?? 1), concepts: {} };
+	for (const row of termRows) {
+		if (!categories[row.category_name]) categories[row.category_name] = { weight: 1, concepts: {} };
+		if (!categories[row.category_name].concepts[row.concept_name]) categories[row.category_name].concepts[row.concept_name] = [];
+		categories[row.category_name].concepts[row.concept_name].push(row.term);
+	}
+	return { version: DEFAULT_TAXONOMY.version, lastUpdated: new Date().toISOString(), categories };
+}
+
+function loadLegacyTaxonomyFromJsonIfPresent(): Taxonomy | undefined {
+	const legacyPath = getTaxonomyPath();
+	if (!existsSync(legacyPath)) return undefined;
+	try {
+		const parsed = JSON.parse(readFileSync(legacyPath, "utf-8")) as Taxonomy;
+		if (parsed?.categories && typeof parsed.categories === "object") return parsed;
+		return undefined;
 	} catch {
-		taxonomy = createTaxonomySnapshot();
+		return undefined;
+	}
+}
+
+function ensureTaxonomySeeded(): { rebuilt: boolean } {
+	if (!isTaxonomyEmptyInDb()) return { rebuilt: false };
+	const legacy = loadLegacyTaxonomyFromJsonIfPresent();
+	const seed = legacy ?? createTaxonomySnapshot();
+	writeTaxonomyToDb(seed);
+	return { rebuilt: true };
+}
+
+async function ensureTaxonomy(rebuild: boolean, liveTaxonomy: boolean, config: RecommendConfig, liveSourceOverride?: string): Promise<TaxonomyState> {
+	let rebuilt = false;
+	if (rebuild) {
+		writeTaxonomyToDb(createTaxonomySnapshot());
 		rebuilt = true;
+	} else {
+		const seedState = ensureTaxonomySeeded();
+		rebuilt = seedState.rebuilt;
 	}
 
+	let taxonomy = readTaxonomyFromDb();
 	const shouldLiveEnrich = liveTaxonomy || rebuild || process.env.PI_MODEL_RECOMMEND_LIVE_TAXONOMY === "1";
 	if (shouldLiveEnrich) {
 		const enriched = await enrichTaxonomyWithLiveSignals(taxonomy, config, liveSourceOverride);
 		taxonomy = enriched.taxonomy;
-		mkdirSync(dirname(path), { recursive: true });
-		writeFileSync(path, JSON.stringify(taxonomy, null, 2));
+		writeTaxonomyToDb(taxonomy);
 		return { taxonomy, rebuilt, enriched: enriched.enriched, liveSources: enriched.liveSources };
 	}
 
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, JSON.stringify(taxonomy, null, 2));
 	return { taxonomy, rebuilt, enriched: false, liveSources: [] };
+}
+
+function exportTaxonomyToPath(path: string): { categories: number; concepts: number; terms: number } {
+	const taxonomy = readTaxonomyFromDb();
+	const outPath = path.trim();
+	if (!outPath) throw new Error("Missing export path");
+	mkdirSync(dirname(outPath), { recursive: true });
+	writeFileSync(outPath, JSON.stringify(taxonomy, null, 2));
+	let concepts = 0;
+	let terms = 0;
+	for (const category of Object.values(taxonomy.categories)) {
+		concepts += Object.keys(category.concepts ?? {}).length;
+		for (const conceptTerms of Object.values(category.concepts ?? {})) terms += conceptTerms.length;
+	}
+	return { categories: Object.keys(taxonomy.categories).length, concepts, terms };
+}
+
+function taxonomyStats(taxonomy: Taxonomy): { categories: number; concepts: number; terms: number } {
+	let concepts = 0;
+	let terms = 0;
+	for (const category of Object.values(taxonomy.categories)) {
+		concepts += Object.keys(category.concepts ?? {}).length;
+		for (const conceptTerms of Object.values(category.concepts ?? {})) terms += conceptTerms.length;
+	}
+	return { categories: Object.keys(taxonomy.categories).length, concepts, terms };
+}
+
+function parseTaxonomyFromPath(path: string): Taxonomy {
+	const inPath = path.trim();
+	if (!inPath) throw new Error("Missing taxonomy path");
+	const raw = readFileSync(inPath, "utf-8");
+	const parsed = JSON.parse(raw) as Taxonomy;
+	if (!parsed?.categories || typeof parsed.categories !== "object") throw new Error("Invalid taxonomy JSON: missing categories object");
+	const normalized: Taxonomy = { version: parsed.version ?? DEFAULT_TAXONOMY.version, lastUpdated: new Date().toISOString(), categories: {} };
+	for (const [categoryName, category] of Object.entries(parsed.categories)) {
+		if (!category || typeof category !== "object") continue;
+		const conceptsObj = (category as any).concepts;
+		if (!conceptsObj || typeof conceptsObj !== "object") continue;
+		normalized.categories[categoryName] = { weight: Number((category as any).weight ?? 1), concepts: {} };
+		for (const [conceptName, values] of Object.entries(conceptsObj as Record<string, unknown>)) {
+			if (!Array.isArray(values)) continue;
+			normalized.categories[categoryName].concepts[conceptName] = values
+				.map((v) => normalizeText(String(v)))
+				.filter((v) => v.length > 0);
+		}
+	}
+	if (Object.keys(normalized.categories).length === 0) throw new Error("Invalid taxonomy JSON: no categories after normalization");
+	return normalized;
+}
+
+function importTaxonomyFromPath(path: string): { categories: number; concepts: number; terms: number } {
+	const normalized = parseTaxonomyFromPath(path);
+	writeTaxonomyToDb(normalized);
+	return taxonomyStats(normalized);
+}
+
+function mergeTaxonomyFromPath(path: string, policy: "append" | "replace" | "keep"): { categories: number; concepts: number; terms: number } {
+	const incoming = parseTaxonomyFromPath(path);
+	const existing = readTaxonomyFromDb();
+	const merged: Taxonomy = JSON.parse(JSON.stringify(existing));
+
+	for (const [categoryName, incomingCategory] of Object.entries(incoming.categories)) {
+		const existingCategory = merged.categories[categoryName];
+		if (!existingCategory) {
+			merged.categories[categoryName] = JSON.parse(JSON.stringify(incomingCategory));
+			continue;
+		}
+		if (policy === "replace") {
+			existingCategory.weight = incomingCategory.weight;
+		} else if (policy === "append") {
+			existingCategory.weight = (Number(existingCategory.weight ?? 1) + Number(incomingCategory.weight ?? 1)) / 2;
+		}
+		for (const [conceptName, incomingTerms] of Object.entries(incomingCategory.concepts ?? {})) {
+			const existingTerms = existingCategory.concepts[conceptName] ?? [];
+			if (policy === "replace") {
+				existingCategory.concepts[conceptName] = [...incomingTerms];
+				continue;
+			}
+			if (policy === "keep") {
+				if (!existingCategory.concepts[conceptName]) existingCategory.concepts[conceptName] = [...incomingTerms];
+				continue;
+			}
+			const union = new Set<string>([...existingTerms, ...incomingTerms]);
+			existingCategory.concepts[conceptName] = [...union];
+		}
+	}
+
+	writeTaxonomyToDb(merged);
+	return taxonomyStats(merged);
 }
 
 function ensureRecommendConfig(): RecommendConfig {
@@ -941,6 +1152,11 @@ function ensureRecommendConfig(): RecommendConfig {
 				...(parsed?.liveTaxonomy ?? {}),
 				sourceWeights: { ...fallback.liveTaxonomy.sourceWeights, ...(parsed?.liveTaxonomy?.sourceWeights ?? {}) },
 			},
+			router: {
+				...fallback.router,
+				...(parsed?.router ?? {}),
+				learning: { ...fallback.router.learning, ...(parsed?.router?.learning ?? {}) },
+			},
 			defaults: { ...fallback.defaults, ...(parsed?.defaults ?? {}) },
 		};
 		writeFileSync(path, JSON.stringify(merged, null, 2));
@@ -949,6 +1165,262 @@ function ensureRecommendConfig(): RecommendConfig {
 		writeFileSync(path, JSON.stringify(fallback, null, 2));
 		return fallback;
 	}
+}
+
+let routerDb: DatabaseSync | undefined;
+
+const ROUTER_DB_SCHEMA_VERSION = 3;
+
+type RouterMigration = {
+	version: number;
+	name: string;
+	up: (db: DatabaseSync) => void;
+};
+
+const ROUTER_MIGRATIONS: RouterMigration[] = [
+	{
+		version: 1,
+		name: "initial-router-schema",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS router_settings (
+					key TEXT PRIMARY KEY,
+					value TEXT NOT NULL
+				);
+				CREATE TABLE IF NOT EXISTS router_weights (
+					scope TEXT NOT NULL,
+					key TEXT NOT NULL,
+					weight REAL NOT NULL DEFAULT 0,
+					updates INTEGER NOT NULL DEFAULT 0,
+					PRIMARY KEY(scope, key)
+				);
+				CREATE TABLE IF NOT EXISTS router_samples (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					ts INTEGER NOT NULL,
+					mode TEXT NOT NULL,
+					prompt_hash TEXT NOT NULL,
+					selected_exact TEXT NOT NULL,
+					selected_provider_family TEXT NOT NULL,
+					selected_family TEXT NOT NULL,
+					candidate_count INTEGER NOT NULL,
+					margin REAL NOT NULL DEFAULT 0,
+					features_json TEXT NOT NULL
+				);
+			`);
+		},
+	},
+	{
+		version: 2,
+		name: "performance-indexes",
+		up: (db) => {
+			db.exec(`
+				CREATE INDEX IF NOT EXISTS idx_router_samples_ts ON router_samples(ts);
+				CREATE INDEX IF NOT EXISTS idx_router_samples_family ON router_samples(selected_family);
+				CREATE INDEX IF NOT EXISTS idx_router_weights_scope_key ON router_weights(scope, key);
+			`);
+		},
+	},
+	{
+		version: 3,
+		name: "taxonomy-tables",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS router_taxonomy_categories (
+					name TEXT PRIMARY KEY,
+					weight REAL NOT NULL
+				);
+				CREATE TABLE IF NOT EXISTS router_taxonomy_terms (
+					category_name TEXT NOT NULL,
+					concept_name TEXT NOT NULL,
+					term TEXT NOT NULL,
+					PRIMARY KEY(category_name, concept_name, term),
+					FOREIGN KEY(category_name) REFERENCES router_taxonomy_categories(name) ON DELETE CASCADE
+				);
+				CREATE INDEX IF NOT EXISTS idx_router_taxonomy_terms_category ON router_taxonomy_terms(category_name);
+			`);
+		},
+	},
+];
+
+function getRouterDbPath(): string {
+	return join(getAgentDir(), "model-recommend.db");
+}
+
+function ensureRouterMigrationsTable(db: DatabaseSync): void {
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS router_migrations (
+			version INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			applied_at INTEGER NOT NULL
+		);
+	`);
+}
+
+function getAppliedRouterSchemaVersion(db: DatabaseSync): number {
+	const row = db.prepare("SELECT MAX(version) AS v FROM router_migrations").get() as { v?: number } | undefined;
+	return Number(row?.v ?? 0);
+}
+
+function applyRouterMigrations(db: DatabaseSync): void {
+	ensureRouterMigrationsTable(db);
+	let current = getAppliedRouterSchemaVersion(db);
+	const pending = ROUTER_MIGRATIONS.filter((m) => m.version > current).sort((a, b) => a.version - b.version);
+	if (pending.length === 0) return;
+	db.exec("BEGIN IMMEDIATE");
+	try {
+		for (const migration of pending) {
+			migration.up(db);
+			db.prepare("INSERT INTO router_migrations(version, name, applied_at) VALUES(?, ?, ?)").run(migration.version, migration.name, Date.now());
+			current = migration.version;
+		}
+		db.exec("COMMIT");
+	} catch (error) {
+		db.exec("ROLLBACK");
+		throw error;
+	}
+}
+
+function getRouterDb(): DatabaseSync {
+	if (routerDb) return routerDb;
+	const path = getRouterDbPath();
+	mkdirSync(dirname(path), { recursive: true });
+	const db = new DatabaseSync(path);
+	applyRouterMigrations(db);
+	routerDb = db;
+	return db;
+}
+
+function getRouterSchemaVersion(): number {
+	return getAppliedRouterSchemaVersion(getRouterDb());
+}
+
+function dbGetNumber(key: string, fallback = 0): number {
+	const row = getRouterDb().prepare("SELECT value FROM router_settings WHERE key = ?").get(key) as { value?: string } | undefined;
+	if (!row?.value) return fallback;
+	const n = Number(row.value);
+	return Number.isFinite(n) ? n : fallback;
+}
+
+function dbSetNumber(key: string, value: number): void {
+	getRouterDb().prepare("INSERT INTO router_settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, String(value));
+}
+
+function canonicalFamily(modelId: string): string {
+	let v = modelId.toLowerCase().trim();
+	v = v.replace(/:[a-z0-9_-]+$/g, "");
+	v = v.replace(/\/(?:[^/]+)$/g, (m) => m.replace("/", ""));
+	v = v.replace(/[-_](20\d{2}(?:[-_]?\d{2}){0,2}|\d{6,8})$/g, "");
+	v = v.replace(/[-_]?v\d+(?:\.\d+)?$/g, "");
+	v = v.replace(/\s+/g, "-");
+	return v;
+}
+
+function exactKey(model: { provider: string; model: string }): string {
+	return `${model.provider.toLowerCase()}::${model.model.toLowerCase().replace(/:[a-z0-9_-]+$/g, "")}`;
+}
+
+function familyKey(model: { model: string }): string {
+	return canonicalFamily(model.model);
+}
+
+function providerFamilyKey(model: { provider: string; model: string }): string {
+	return `${model.provider.toLowerCase()}::${familyKey(model)}`;
+}
+
+function readWeight(scope: string, key: string): { weight: number; updates: number } {
+	const row = getRouterDb().prepare("SELECT weight, updates FROM router_weights WHERE scope = ? AND key = ?").get(scope, key) as
+		| { weight?: number; updates?: number }
+		| undefined;
+	return { weight: Number(row?.weight ?? 0), updates: Number(row?.updates ?? 0) };
+}
+
+function addWeight(scope: string, key: string, delta: number): void {
+	getRouterDb()
+		.prepare(
+			"INSERT INTO router_weights(scope, key, weight, updates) VALUES(?, ?, ?, 1) ON CONFLICT(scope, key) DO UPDATE SET weight = weight + excluded.weight, updates = updates + 1",
+		)
+		.run(scope, key, delta);
+}
+
+function routerSampleCount(): number {
+	const cached = dbGetNumber("sample_count", -1);
+	if (cached >= 0) return cached;
+	const row = getRouterDb().prepare("SELECT COUNT(*) as c FROM router_samples").get() as { c?: number } | undefined;
+	const count = Number(row?.c ?? 0);
+	dbSetNumber("sample_count", count);
+	return count;
+}
+
+function applyLearnedAdjustments(scored: ScoredModel[], config: RecommendConfig): ScoredModel[] {
+	const samples = routerSampleCount();
+	const warmup = Math.max(1, Number(config.router.learning.alphaWarmupSamples ?? 200));
+	const maxAlpha = clamp(Number(config.router.learning.maxAlpha ?? 0.45), 0, 0.9);
+	const alpha = clamp((samples / warmup) * maxAlpha, 0, maxAlpha);
+	for (const m of scored) {
+		const fam = readWeight("family", familyKey(m));
+		const pf = readWeight("provider_family", providerFamilyKey(m));
+		const ex = readWeight("exact", exactKey(m));
+		const learned = fam.weight * 0.5 + pf.weight * 0.3 + ex.weight * 0.2;
+		m.score = clamp(m.score + learned * alpha, 0, 100);
+		if (Math.abs(learned) > 0.001) m.breakdown.reasons.push(`learned-bias=${(learned * alpha).toFixed(2)} alpha=${alpha.toFixed(2)}`);
+		m.breakdown.final = m.score;
+	}
+	return scored;
+}
+
+function persistTrainingSample(task: string, mode: string, intent: Intent, selected: ScoredModel, offered: ScoredModel[], margin: number): void {
+	const ts = Date.now();
+	const promptHash = String(hashString(task));
+	getRouterDb()
+		.prepare(
+			"INSERT INTO router_samples(ts, mode, prompt_hash, selected_exact, selected_provider_family, selected_family, candidate_count, margin, features_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		)
+		.run(
+			ts,
+			mode,
+			promptHash,
+			exactKey(selected),
+			providerFamilyKey(selected),
+			familyKey(selected),
+			offered.length,
+			margin,
+			JSON.stringify({
+				complexity: intent.complexity,
+				domains: Array.from(intent.domains),
+				languages: Array.from(intent.languages),
+				categories: Array.from(intent.matchedTaxonomyCategories),
+				needs: intent.capabilityNeeds,
+			}),
+		);
+	dbSetNumber("sample_count", routerSampleCount() + 1);
+}
+
+function trainPairwiseSelection(config: RecommendConfig, selected: ScoredModel, offered: ScoredModel[]): void {
+	const step = clamp(Number(config.router.learning.pairwiseStep ?? 1), 0.05, 5);
+	const negatives = offered.filter((m) => exactKey(m) !== exactKey(selected));
+	if (negatives.length === 0) return;
+	const negStep = step / negatives.length;
+	addWeight("family", familyKey(selected), step * 0.5);
+	addWeight("provider_family", providerFamilyKey(selected), step * 0.3);
+	addWeight("exact", exactKey(selected), step * 0.2);
+	for (const n of negatives) {
+		addWeight("family", familyKey(n), -negStep * 0.5);
+		addWeight("provider_family", providerFamilyKey(n), -negStep * 0.3);
+		addWeight("exact", exactKey(n), -negStep * 0.2);
+	}
+}
+
+function resetLearningStore(): void {
+	const db = getRouterDb();
+	db.exec("DELETE FROM router_weights; DELETE FROM router_samples;");
+	dbSetNumber("sample_count", 0);
+}
+
+function getLearningStats(): { samples: number; weights: number } {
+	const db = getRouterDb();
+	const sampleRow = db.prepare("SELECT COUNT(*) as c FROM router_samples").get() as { c?: number } | undefined;
+	const weightRow = db.prepare("SELECT COUNT(*) as c FROM router_weights").get() as { c?: number } | undefined;
+	return { samples: Number(sampleRow?.c ?? 0), weights: Number(weightRow?.c ?? 0) };
 }
 
 function escapeRegExp(value: string): string {
@@ -1218,33 +1690,238 @@ function applyCapabilityDeltaGuard(models: ScoredModel[], intent: Intent, config
 	return models;
 }
 
+async function computeRecommendations(
+	task: string,
+	opts: RecommendOptions,
+	ctx: { modelRegistry: { getAll(): unknown[] } },
+	config: RecommendConfig,
+	includeNearMissFill = false,
+): Promise<{ top: ScoredModel[]; scored: ScoredModel[]; stageA: { constraints: CapabilityConstraints; relaxLevel: number }; intent: Intent; taxState: TaxonomyState }> {
+	const taxState = await ensureTaxonomy(opts.rebuildTaxonomy, opts.liveTaxonomy, config, opts.liveSourcesArg);
+	const intent = analyzeIntent(task, taxState.taxonomy, config);
+	const registryModels = ctx.modelRegistry.getAll() as ModelLike[];
+	const costHints = buildCostHintIndex(registryModels);
+	const activeProviders = getAuthenticatedProvidersFromAuthJson();
+	let models = registryModels.filter((m) => activeProviders.has(m.provider));
+	if (opts.providers.length > 0) models = models.filter((m) => opts.providers.some((p) => m.provider.toLowerCase().includes(p)));
+	if (opts.localOnly) models = models.filter((m) => buildModelProfile(m).isLocal);
+	if (opts.grep) models = models.filter((m) => `${m.provider}/${m.id}`.toLowerCase().includes(opts.grep!.toLowerCase()));
+
+	const allCandidates = models
+		.map(
+			(m): ScoredModel => {
+				const p = buildModelProfile(m, costHints);
+				return {
+					provider: p.provider,
+					model: p.model,
+					score: 0,
+					intelligence: p.intel,
+					reasoning: p.reasoning,
+					toolReliability: p.toolReliability,
+					speed: p.speed,
+					inputPrice: p.costIn,
+					outputPrice: p.costOut,
+					effectivePrice: p.effectivePrice,
+					priceEstimated: p.priceEstimated,
+					contextWindow: p.context,
+					supportsImages: p.supportsImages,
+					isLocal: p.isLocal,
+					breakdown: {
+						normIntel: 0,
+						normSpeed: 0,
+						normPrice: 0,
+						normContext: 0,
+						weightedBase: 0,
+						affinity: 1,
+						tieJitter: 0,
+						final: 0,
+						weights: { intel: 1, speed: 1, price: 1, context: 1 },
+						reasons: [],
+					},
+				};
+			},
+		)
+		.filter((m) => (opts.trusted ? isTrustedAuthor(m.model) : true));
+
+	if (allCandidates.length === 0) return { top: [], scored: [], stageA: { constraints: deriveConstraints(intent, config), relaxLevel: 0 }, intent, taxState };
+	const stageA = selectStageAFeasible(allCandidates, intent, config);
+	let scored = stageA.feasible.map((m) => ({ ...m, score: scoreModel(m, intent, config, stageA.constraints, stageA.relaxLevel) }));
+	scored = applyCapabilityDeltaGuard(scored, intent, config);
+	scored = applyLearnedAdjustments(scored, config);
+
+	const dir = opts.sortDir === "desc" ? -1 : 1;
+	const compareModels = (a: ScoredModel, b: ScoredModel): number => {
+		let cmp = 0;
+		switch (opts.sortBy) {
+			case "score": {
+				if (opts.strategy === "local-first") {
+					cmp = Number(a.isLocal) - Number(b.isLocal);
+					if (cmp === 0) cmp = a.breakdown.weightedBase - b.breakdown.weightedBase;
+					if (cmp === 0) cmp = b.effectivePrice - a.effectivePrice;
+				} else if (opts.strategy === "capability-first") {
+					cmp = a.breakdown.weightedBase - b.breakdown.weightedBase;
+					if (cmp === 0) cmp = b.effectivePrice - a.effectivePrice;
+				} else {
+					if (opts.localPrefer) {
+						cmp = Number(a.isLocal) - Number(b.isLocal);
+						if (cmp !== 0) return cmp * dir;
+					}
+					cmp = b.effectivePrice - a.effectivePrice;
+					if (cmp === 0) cmp = a.breakdown.weightedBase - b.breakdown.weightedBase;
+				}
+				if (cmp === 0) cmp = a.score - b.score;
+				break;
+			}
+			case "intelligence":
+				cmp = a.intelligence - b.intelligence;
+				break;
+			case "reasoning":
+				cmp = a.reasoning - b.reasoning;
+				break;
+			case "reliability":
+				cmp = a.toolReliability - b.toolReliability;
+				break;
+			case "speed":
+				cmp = a.speed - b.speed;
+				break;
+			case "price":
+				cmp = a.effectivePrice - b.effectivePrice;
+				break;
+			case "context":
+				cmp = a.contextWindow - b.contextWindow;
+				break;
+		}
+		if (cmp === 0) cmp = a.model.localeCompare(b.model) * -1;
+		return cmp * dir;
+	};
+
+	scored.sort(compareModels);
+
+	if (includeNearMissFill && scored.length < Math.max(1, opts.limit)) {
+		const feasibleSet = new Set(stageA.feasible.map((m) => `${m.provider}::${m.model}`));
+		let nearMiss = allCandidates
+			.filter((m) => !feasibleSet.has(`${m.provider}::${m.model}`))
+			.map((m) => ({ ...m, score: scoreModel({ ...m }, intent, config, stageA.constraints, stageA.relaxLevel) }));
+		nearMiss = applyLearnedAdjustments(nearMiss, config).map((m) => {
+			m.breakdown.reasons.push("near-miss: did not satisfy stageA constraints");
+			return m;
+		});
+		nearMiss.sort(compareModels);
+		scored = [...scored, ...nearMiss].slice(0, Math.max(1, opts.limit));
+	}
+
+	return { top: scored.slice(0, Math.max(1, opts.limit)), scored, stageA, intent, taxState };
+}
+
 function usageText(): string {
 	return [
 		"/model-recommend <task> [options]",
 		"",
 		"Options:",
-		"  --rebuild-taxonomy",
-		"  --trusted",
-		"  --live-taxonomy",
-		"  --live-sources <all|csv>",
-		"  --provider <name[,name]>   Repeatable; supports comma-separated values",
-		"  --grep <text>",
-		"  --strategy <cheapest-capable|capability-first|local-first>",
-		"  --local-prefer",
-		"  --local-only",
+		"  --rebuild-taxonomy                      Reset taxonomy in DB to defaults, then optionally enrich",
+		"  --live-taxonomy                         Enrich current taxonomy with live sources (no reset)",
+		"  --live-sources <all|csv>                Override enabled live sources for this run",
+		"  --set-auto <off|suggest|enforce>        Auto-routing mode (suggest prompts user, enforce auto-picks on confidence)",
+		"  --set-learning <on|off>                 Enable/disable online learning",
+		"  --status                                Print router status, DB schema, sample counts",
+		"  --reset-learning                        Clear learned weights and training samples",
+		"  --export-taxonomy <path>                Export taxonomy from DB to JSON file",
+		"  --import-taxonomy <path>                Import taxonomy JSON as REPLACE (overwrites DB taxonomy)",
+		"  --merge-taxonomy <path>                 Merge taxonomy JSON into DB taxonomy",
+		"  --merge-policy <append|replace|keep>    Merge policy for --merge-taxonomy (default: append)",
+		"  --provider <name[,name]>                Filter providers (repeatable, comma-separated)",
+		"  --grep <text>                           Filter models by provider/model substring",
+		"  --trusted                               Keep only models from trusted org list",
+		"  --strategy <cheapest-capable|capability-first|local-first>   Ranking strategy",
+		"  --local-prefer                          Prefer local models when scores are similar",
+		"  --local-only                            Only local providers/models",
 		"  --sort-by <score|intelligence|reasoning|reliability|speed|price|context> [asc|desc]",
-		"  --limit <n>",
-		"  --explain",
-		"  --help",
+		"                                          Sort output table",
+		"  --limit <n>                             Number of models to display",
+		"  --explain                               Show per-model score breakdown and reasons",
+		"  --help                                  Show this help",
 		"",
 		"Notes:",
-		"  - Taxonomy is stored at ~/.pi/model-taxonomy.json",
-		"  - Recommendation tuning config is stored at agent/model-recommend-config.json",
-		"  - Live taxonomy sources are configurable in config.liveTaxonomy.enabledSources",
-		"  - Use --live-sources all to force all available sources",
-		"  - --provider accepts repeated flags and comma-separated providers",
-		"  - If either file is missing, it is auto-built on first run", 
+		"  - Config file: agent/model-recommend-config.json",
+		"  - Data DB: agent/model-recommend.db (taxonomy + weights + samples + migrations)",
+		"  - Legacy taxonomy JSON (~/.pi/model-taxonomy.json) is imported once if DB taxonomy is empty",
 	].join("\n");
+}
+
+function findModelFromInput(input: string, registryModels: ModelLike[]): ModelLike | undefined {
+	const raw = input.trim().toLowerCase();
+	if (!raw) return undefined;
+	if (raw.includes("/")) {
+		const [provider, ...rest] = raw.split("/");
+		const id = rest.join("/");
+		return registryModels.find((m) => m.provider.toLowerCase() === provider && m.id.toLowerCase() === id);
+	}
+	return (
+		registryModels.find((m) => m.id.toLowerCase() === raw) ??
+		registryModels.find((m) => canonicalFamily(m.id) === canonicalFamily(raw)) ??
+		registryModels.find((m) => `${m.provider}/${m.id}`.toLowerCase().includes(raw))
+	);
+}
+
+async function maybeChooseModelInteractive(
+	ctx: any,
+	top: ScoredModel[],
+	allowCustom: boolean,
+	title = "Model recommendation",
+): Promise<ScoredModel | undefined> {
+	if (!ctx.hasUI || top.length === 0) return top[0];
+	const choices = top.map((m, i) => `${i + 1}. ${m.provider}/${m.model} (score ${m.score.toFixed(1)})`);
+	if (allowCustom) choices.push("Custom model...");
+	choices.push("Keep current model");
+	const selected = await ctx.ui.select(title, choices);
+	if (!selected || selected === "Keep current model") return undefined;
+	if (selected === "Custom model...") {
+		const input = await ctx.ui.input("Custom model", "provider/model or model id");
+		if (!input) return undefined;
+		const registryModels = ctx.modelRegistry.getAll() as ModelLike[];
+		const found = findModelFromInput(input, registryModels);
+		if (!found) {
+			ctx.ui.notify(`Model not found: ${input}`, "warning");
+			return undefined;
+		}
+		const p = buildModelProfile(found);
+		return {
+			provider: p.provider,
+			model: p.model,
+			score: 0,
+			intelligence: p.intel,
+			reasoning: p.reasoning,
+			toolReliability: p.toolReliability,
+			speed: p.speed,
+			inputPrice: p.costIn,
+			outputPrice: p.costOut,
+			effectivePrice: p.effectivePrice,
+			priceEstimated: p.priceEstimated,
+			contextWindow: p.context,
+			supportsImages: p.supportsImages,
+			isLocal: p.isLocal,
+			breakdown: {
+				normIntel: 0,
+				normSpeed: 0,
+				normPrice: 0,
+				normContext: 0,
+				weightedBase: 0,
+				affinity: 0,
+				tieJitter: 0,
+				final: 0,
+				weights: { intel: 0, speed: 0, price: 0, context: 0 },
+				reasons: ["custom-choice"],
+			},
+		};
+	}
+	const idx = Number(selected.split(".")[0]) - 1;
+	return top[idx] ?? top[0];
+}
+
+async function setCurrentModel(pi: ExtensionAPI, ctx: any, selected: ScoredModel): Promise<boolean> {
+	const model = (ctx.modelRegistry.getAll() as ModelLike[]).find((m) => m.provider === selected.provider && m.id === selected.model);
+	if (!model) return false;
+	return await pi.setModel(model as any);
 }
 
 export default function modelRecommendExtension(pi: ExtensionAPI) {
@@ -1252,10 +1929,68 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
 		description: "Recommend models for a task using auth-aware model access + local taxonomy scoring",
 		handler: async (args, ctx) => {
 			const opts = parseRecommendArgs(args);
-			if (process.env.PI_MODEL_RECOMMEND_DEBUG === "1") {
-				const dbg = `[model-recommend debug]\nrawArgs=${JSON.stringify(args)}\nparsedTask=${JSON.stringify(opts.task)}\nproviders=${JSON.stringify(opts.providers)}\nstrategy=${opts.strategy}\nlimit=${opts.limit}`;
-				if (ctx.hasUI) ctx.ui.notify(dbg, "info");
-				else console.log(dbg);
+			const config = ensureRecommendConfig();
+
+			if (opts.autoModeArg) config.router.autoMode = opts.autoModeArg;
+			if (opts.learningModeArg) config.router.learnEnabled = opts.learningModeArg === "on";
+			if (opts.resetLearning) resetLearningStore();
+
+			if (opts.importTaxonomyPath && opts.mergeTaxonomyPath) {
+				const msg = "Use either --import-taxonomy or --merge-taxonomy in one command (not both).";
+				if (ctx.hasUI) ctx.ui.notify(msg, "error");
+				else console.log(msg);
+				return;
+			}
+
+			const hasTaxonomyRefreshFlags = opts.rebuildTaxonomy || opts.liveTaxonomy || Boolean(opts.liveSourcesArg);
+			let taxonomyActionMessage = "";
+			try {
+				if (opts.importTaxonomyPath) {
+					const imported = importTaxonomyFromPath(opts.importTaxonomyPath);
+					taxonomyActionMessage = `Imported taxonomy (replace) from ${opts.importTaxonomyPath} (categories=${imported.categories}, concepts=${imported.concepts}, terms=${imported.terms})`;
+				}
+				if (opts.mergeTaxonomyPath) {
+					const merged = mergeTaxonomyFromPath(opts.mergeTaxonomyPath, opts.mergePolicy);
+					const mergeMsg = `Merged taxonomy from ${opts.mergeTaxonomyPath} policy=${opts.mergePolicy} (categories=${merged.categories}, concepts=${merged.concepts}, terms=${merged.terms})`;
+					taxonomyActionMessage = taxonomyActionMessage ? `${taxonomyActionMessage}\n${mergeMsg}` : mergeMsg;
+				}
+				if (opts.exportTaxonomyPath) {
+					const exported = exportTaxonomyToPath(opts.exportTaxonomyPath);
+					const exportMsg = `Exported taxonomy to ${opts.exportTaxonomyPath} (categories=${exported.categories}, concepts=${exported.concepts}, terms=${exported.terms})`;
+					taxonomyActionMessage = taxonomyActionMessage ? `${taxonomyActionMessage}\n${exportMsg}` : exportMsg;
+				}
+				if (!opts.task && hasTaxonomyRefreshFlags) {
+					const taxState = await ensureTaxonomy(opts.rebuildTaxonomy, opts.liveTaxonomy, config, opts.liveSourcesArg);
+					const refreshMsg = `Taxonomy refresh complete: ${taxState.rebuilt ? "rebuilt" : "updated"}${taxState.enriched ? " + live-signals" : ""}${taxState.liveSources.length ? ` (${taxState.liveSources.join(", ")})` : ""}`;
+					taxonomyActionMessage = taxonomyActionMessage ? `${taxonomyActionMessage}\n${refreshMsg}` : refreshMsg;
+				}
+			} catch (error) {
+				const msg = `Taxonomy import/export/merge failed: ${(error as Error).message}`;
+				if (ctx.hasUI) ctx.ui.notify(msg, "error");
+				else console.log(msg);
+				return;
+			}
+
+			config.lastUpdated = new Date().toISOString();
+			writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+
+			if (opts.status || opts.autoModeArg || opts.learningModeArg || opts.resetLearning || opts.importTaxonomyPath || opts.mergeTaxonomyPath || opts.exportTaxonomyPath || hasTaxonomyRefreshFlags) {
+				const stats = getLearningStats();
+				const schemaVersion = getRouterSchemaVersion();
+				const text = [
+					`Auto mode: ${config.router.autoMode}`,
+					`Learning: ${config.router.learnEnabled ? "on" : "off"}`,
+					`Confidence margin: ${config.router.minMarginForAutoPick}`,
+					`SQLite DB: ${getRouterDbPath()}`,
+					`DB schema: v${schemaVersion}/${ROUTER_DB_SCHEMA_VERSION}`,
+					`Training samples: ${stats.samples} | Learned weights: ${stats.weights}`,
+					taxonomyActionMessage,
+				]
+					.filter(Boolean)
+					.join("\n");
+				if (ctx.hasUI) ctx.ui.notify(text, "info");
+				else console.log(text);
+				if (!opts.task) return;
 			}
 
 			if (opts.help || !opts.task) {
@@ -1277,111 +2012,14 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			const config = ensureRecommendConfig();
-			const taxState = await ensureTaxonomy(opts.rebuildTaxonomy, opts.liveTaxonomy, config, opts.liveSourcesArg);
-			const intent = analyzeIntent(opts.task, taxState.taxonomy, config);
-
-			const registryModels = ctx.modelRegistry.getAll() as ModelLike[];
-			const costHints = buildCostHintIndex(registryModels);
-			let models = registryModels.filter((m) => activeProviders.has(m.provider));
-			if (opts.providers.length > 0) models = models.filter((m) => opts.providers.some((p) => m.provider.toLowerCase().includes(p)));
-			if (opts.localOnly) models = models.filter((m) => buildModelProfile(m).isLocal);
-			if (opts.grep) models = models.filter((m) => `${m.provider}/${m.id}`.toLowerCase().includes(opts.grep!.toLowerCase()));
-
-			let scored = models
-				.map(
-					(m): ScoredModel => {
-						const p = buildModelProfile(m, costHints);
-						return {
-							provider: p.provider,
-							model: p.model,
-							score: 0,
-							intelligence: p.intel,
-							reasoning: p.reasoning,
-							toolReliability: p.toolReliability,
-							speed: p.speed,
-							inputPrice: p.costIn,
-							outputPrice: p.costOut,
-							effectivePrice: p.effectivePrice,
-							priceEstimated: p.priceEstimated,
-							contextWindow: p.context,
-							supportsImages: p.supportsImages,
-							isLocal: p.isLocal,
-							breakdown: {
-								normIntel: 0,
-								normSpeed: 0,
-								normPrice: 0,
-								normContext: 0,
-								weightedBase: 0,
-								affinity: 1,
-								tieJitter: 0,
-								final: 0,
-								weights: { intel: 1, speed: 1, price: 1, context: 1 },
-								reasons: [],
-							},
-						};
-					},
-				)
-				.filter((m) => (opts.trusted ? isTrustedAuthor(m.model) : true));
-
-			if (scored.length === 0) {
+			const { top, stageA, intent, taxState } = await computeRecommendations(opts.task, opts, ctx, config, true);
+			if (top.length === 0) {
 				const msg = "No models matched your filters.";
 				if (ctx.hasUI) ctx.ui.notify(msg, "warning");
 				else console.log(msg);
 				return;
 			}
 
-			const stageA = selectStageAFeasible(scored, intent, config);
-			scored = stageA.feasible.map((m) => ({ ...m, score: scoreModel(m, intent, config, stageA.constraints, stageA.relaxLevel) }));
-			scored = applyCapabilityDeltaGuard(scored, intent, config);
-
-			const dir = opts.sortDir === "desc" ? -1 : 1;
-			scored.sort((a, b) => {
-				let cmp = 0;
-				switch (opts.sortBy) {
-					case "score": {
-						if (opts.strategy === "local-first") {
-							cmp = Number(a.isLocal) - Number(b.isLocal);
-							if (cmp === 0) cmp = a.breakdown.weightedBase - b.breakdown.weightedBase;
-							if (cmp === 0) cmp = b.effectivePrice - a.effectivePrice;
-						} else if (opts.strategy === "capability-first") {
-							cmp = a.breakdown.weightedBase - b.breakdown.weightedBase;
-							if (cmp === 0) cmp = b.effectivePrice - a.effectivePrice;
-						} else {
-							if (opts.localPrefer) {
-								cmp = Number(a.isLocal) - Number(b.isLocal);
-								if (cmp !== 0) break;
-							}
-							cmp = b.effectivePrice - a.effectivePrice;
-							if (cmp === 0) cmp = a.breakdown.weightedBase - b.breakdown.weightedBase;
-						}
-						if (cmp === 0) cmp = a.score - b.score;
-						break;
-					}
-					case "intelligence":
-						cmp = a.intelligence - b.intelligence;
-						break;
-					case "reasoning":
-						cmp = a.reasoning - b.reasoning;
-						break;
-					case "reliability":
-						cmp = a.toolReliability - b.toolReliability;
-						break;
-					case "speed":
-						cmp = a.speed - b.speed;
-						break;
-					case "price":
-						cmp = a.effectivePrice - b.effectivePrice;
-						break;
-					case "context":
-						cmp = a.contextWindow - b.contextWindow;
-						break;
-				}
-				if (cmp === 0) cmp = a.model.localeCompare(b.model) * -1;
-				return cmp * dir;
-			});
-
-			const top = scored.slice(0, Math.max(1, opts.limit));
 			const rows = top.map((m, i) => ({
 				rank: String(i + 1),
 				score: m.score.toFixed(1),
@@ -1393,106 +2031,54 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
 				speed: `${Math.round(m.speed)} tps`,
 				price: `${formatMoney(m.inputPrice)} / ${formatMoney(m.outputPrice)}${m.priceEstimated ? " ~" : ""}`,
 				context: formatTokenCount(m.contextWindow),
-				type: m.isLocal ? "local" : "commercial",
+				type: m.breakdown.reasons.some((r) => r.startsWith("near-miss:")) ? (m.isLocal ? "local*" : "commercial*") : m.isLocal ? "local" : "commercial",
 			}));
-
-			const w = {
-				rank: Math.max(4, ...rows.map((r) => r.rank.length)),
-				score: Math.max(5, ...rows.map((r) => r.score.length)),
-				provider: Math.max(8, ...rows.map((r) => r.provider.length)),
-				model: Math.max(5, ...rows.map((r) => r.model.length)),
-				intel: Math.max(5, ...rows.map((r) => r.intel.length)),
-				reason: Math.max(6, ...rows.map((r) => r.reason.length)),
-				reliab: Math.max(6, ...rows.map((r) => r.reliab.length)),
-				speed: Math.max(5, ...rows.map((r) => r.speed.length)),
-				price: Math.max(21, ...rows.map((r) => r.price.length)),
-				context: Math.max(7, ...rows.map((r) => r.context.length)),
-				type: Math.max(4, ...rows.map((r) => r.type.length)),
-			};
-
-			const header =
-				pad("rank", w.rank) +
-				"  " +
-				pad("score", w.score) +
-				"  " +
-				pad("provider", w.provider) +
-				"  " +
-				pad("model", w.model) +
-				"  " +
-				pad("intel", w.intel) +
-				"  " +
-				pad("reason", w.reason) +
-				"  " +
-				pad("reliab", w.reliab) +
-				"  " +
-				pad("speed", w.speed) +
-				"  " +
-				pad("price(in/out per 1M)", w.price) +
-				"  " +
-				pad("context", w.context) +
-				"  " +
-				pad("type", w.type);
-
-			const lines = rows.map(
-				(r) =>
-					pad(r.rank, w.rank) +
-					"  " +
-					pad(r.score, w.score) +
-					"  " +
-					pad(r.provider, w.provider) +
-					"  " +
-					pad(r.model, w.model) +
-					"  " +
-					pad(r.intel, w.intel) +
-					"  " +
-					pad(r.reason, w.reason) +
-					"  " +
-					pad(r.reliab, w.reliab) +
-					"  " +
-					pad(r.speed, w.speed) +
-					"  " +
-					pad(r.price, w.price) +
-					"  " +
-					pad(r.context, w.context) +
-					"  " +
-					pad(r.type, w.type),
-			);
-
+			const header = "rank  score  provider  model  intel  reason  reliab  speed  price(in/out per 1M)  context  type";
+			const lines = rows.map((r) => `${r.rank}  ${r.score}  ${r.provider}  ${r.model}  ${r.intel}  ${r.reason}  ${r.reliab}  ${r.speed}  ${r.price}  ${r.context}  ${r.type}`);
 			const needs = intent.capabilityNeeds;
 			const preface = [
 				`Task: ${opts.task}`,
 				`Intent: ${Array.from(intent.domains).join("/") || "general"} | Complexity: ${intent.complexity}/100`,
-				`Languages: ${Array.from(intent.languages).join(", ") || "-"} | Taxonomy categories: ${Array.from(intent.matchedTaxonomyCategories).join(", ") || "-"}`,
 				`Needs: reasoning=${needs.reasoningDepth.toFixed(2)} system=${needs.systemBreadth.toFixed(2)} correctness=${needs.correctnessRisk.toFixed(2)} context=${needs.contextVolume.toFixed(2)} safety=${needs.safetyCriticality.toFixed(2)} cost=${needs.costSensitivity.toFixed(2)} latency=${needs.latencySensitivity.toFixed(2)}`,
 				`StageA: intel>=${stageA.constraints.minIntel} reason>=${stageA.constraints.minReasoning} tool>=${stageA.constraints.minToolReliability} context>=${stageA.constraints.minContext} | relax=${stageA.relaxLevel}`,
-				`Taxonomy matches: concepts=${intent.matchedTaxonomyConcepts.size}`,
-				`Strategy: ${opts.strategy}${opts.localPrefer ? " + local-prefer" : ""}${opts.localOnly ? " + local-only" : ""} | Providers: ${opts.providers.join(",") || "all-authenticated"}`,
-				`Taxonomy: ${taxState.rebuilt ? "rebuilt" : "ready"}${taxState.enriched ? " + live-signals" : ""}${taxState.liveSources.length ? ` (${taxState.liveSources.join(", ")})` : ""} | Config: ${getConfigPath()}`,
-				"Price marker: '~' means estimated from other providers for same model id",
-				"",
+				`Taxonomy: ${taxState.rebuilt ? "rebuilt" : "ready"}${taxState.enriched ? " + live-signals" : ""}`,
 			].join("\n");
-
-			const explainEnabled = opts.explain || process.env.PI_MODEL_RECOMMEND_EXPLAIN === "1";
-			const explainBlock = explainEnabled
-				? [
-					"",
-					"Score breakdown (top models):",
-					...top.map((m, i) => {
-						const b = m.breakdown;
-						return [
-							`${i + 1}. ${m.provider}/${m.model}`,
-							`   base=${(b.weightedBase * 100).toFixed(1)} | affinity=${b.affinity.toFixed(2)} | jitter=${b.tieJitter.toFixed(2)} | final=${b.final.toFixed(1)}`,
-							`   norms intel=${b.normIntel.toFixed(2)} speed=${b.normSpeed.toFixed(2)} price=${b.normPrice.toFixed(2)} context=${b.normContext.toFixed(2)}`,
-							`   weights intel=${b.weights.intel.toFixed(2)} speed=${b.weights.speed.toFixed(2)} price=${b.weights.price.toFixed(2)} context=${b.weights.context.toFixed(2)}`,
-							`   reasons: ${b.reasons.join("; ") || "none"}`,
-						].join("\n");
-					}),
-				].join("\n")
-				: "";
-
-			const output = [preface, header, "-".repeat(header.length), ...lines, explainBlock].join("\n");
+			const output = [preface, "Type marker: * = near-miss fallback (did not fully satisfy StageA)", header, ...lines].join("\n");
 			if (ctx.hasUI) ctx.ui.notify(output, "info");
 			else console.log(output);
+
+			if (config.router.learnEnabled) {
+				const selected = await maybeChooseModelInteractive(ctx, top.slice(0, 5), true, "Choose best model for this task (training)");
+				if (selected) {
+					const ok = await setCurrentModel(pi, ctx, selected);
+					const margin = top.length > 1 ? top[0].score - top[1].score : top[0].score;
+					persistTrainingSample(opts.task, "manual", intent, selected, top.slice(0, 5), margin);
+					trainPairwiseSelection(config, selected, top.slice(0, 5));
+					if (ctx.hasUI) ctx.ui.notify(`Learned preference: ${selected.provider}/${selected.model}${ok ? " (model switched)" : ""}`, "success");
+				}
+			}
 		},
+	});
+
+	pi.on("before_agent_start", async (event, ctx) => {
+		const config = ensureRecommendConfig();
+		if (config.router.autoMode === "off") return;
+		const prompt = String((event as any).prompt ?? "").trim();
+		if (!prompt || prompt.startsWith("/")) return;
+		const opts = parseRecommendArgs("");
+		opts.limit = 5;
+		const { top, intent } = await computeRecommendations(prompt, opts, ctx as any, config);
+		if (top.length === 0) return;
+		const margin = top.length > 1 ? top[0].score - top[1].score : 100;
+		let selected: ScoredModel | undefined = top[0];
+		const shouldAsk = config.router.autoMode === "suggest" || (config.router.autoMode === "enforce" && margin < config.router.minMarginForAutoPick);
+		if (shouldAsk) selected = await maybeChooseModelInteractive(ctx as any, top.slice(0, 5), true, "Pick model for this prompt");
+		if (!selected) return;
+		const ok = await setCurrentModel(pi, ctx as any, selected);
+		if ((ctx as any).hasUI) (ctx as any).ui.notify(`Routing: ${selected.provider}/${selected.model}${ok ? "" : " (switch failed)"}`, ok ? "info" : "warning");
+		if (config.router.learnEnabled) {
+			persistTrainingSample(prompt, shouldAsk ? "auto-suggest" : "auto-enforce", intent, selected, top.slice(0, 5), margin);
+			trainPairwiseSelection(config, selected, top.slice(0, 5));
+		}
 	});
 }
