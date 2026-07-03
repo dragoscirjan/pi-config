@@ -1,0 +1,78 @@
+{
+  "mcpServers": {
+    "browser_playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--browser",
+        "chromium",
+        "--executable-path",
+        "${BROWSER_PATH}"
+      ],
+      "directTools": true
+    },
+    "codeindex_gitnexus": {
+      "command": "gitnexus",
+      "args": [
+        "mcp"
+      ],
+      "directTools": true
+    },
+    "cvs_github": {
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_TOKEN}",
+        "X-MCP-Toolsets": "repos,issues",
+        "X-MCP-Readonly": "true"
+      },
+      "directTools": true
+    },
+    "docs_context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "directTools": true
+    },
+    "docs_github_grep": {
+      "url": "https://mcp.grep.app",
+      "directTools": true
+    },
+    "memory_json": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": "${PROJECT_PATH}/.memory.jsonl"
+      },
+      "directTools": true
+    },
+    "memory_db": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-memory-libsql"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": "${PROJECT_PATH}/.memory.db"
+      },
+      "directTools": false
+    },
+    "sequential_thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "directTools": true
+    },
+    "webcrawl_searchable": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@dragoscirjan/mcp-searchable@latest"
+      ],
+      "directTools": true
+    }
+  }
+}

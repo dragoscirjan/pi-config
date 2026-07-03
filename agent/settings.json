@@ -5,5 +5,8 @@
   ],
   "defaultProvider": "github-copilot",
   "defaultModel": "gpt-5.3-codex",
-  "lastChangelogVersion": "0.73.1"
+  "lastChangelogVersion": "0.73.1",
+  "packages": [
+    "git:github.com/nicobailon/pi-mcp-adapter"
+  ]
 }

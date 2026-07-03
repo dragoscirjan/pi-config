@@ -1,9 +1,15 @@
 node_modules/
+
+# Pi agent runtime state / secrets
 agent/sessions/
 agent/auth.json
 agent/mcp-cache.json
 agent/mcp-npx-cache.json
 agent/mcp-oauth/
+agent/mcp-onboarding.json
+agent/git/
+
+# Local data caches
 .web_stash.db
 .memory.jsonl
 .memory.json
