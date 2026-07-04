@@ -58,6 +58,14 @@
       },
       "directTools": false
     },
+    "memory_context": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "context-mode"
+      ],
+      "directTools": true
+    },
     "sequential_thinking": {
       "command": "npx",
       "args": [

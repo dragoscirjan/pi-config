@@ -21,6 +21,11 @@ When solving user requests in this repo, prefer the following MCP servers by def
    - Prefer `webcrawl_searchable_web` for web discovery and page retrieval.
    - Reason: it converts HTML pages to Markdown, which is easier for the LLM to read and summarize accurately.
 
+6. **Context Management and Data Extraction ("Think in Code")**
+   - Prefer `memory_context` (context-mode) for operations involving large data sets, log analysis, or repetitive file reads.
+   - Use `ctx_execute` to run scripts that process data locally and only return relevant summaries, keeping raw data out of the context window.
+   - Use `ctx_index` and `ctx_search` for persistent session memory and retrieval.
+
 ## Behavior rules
 
 - If a task is clearly multi-step, use `sequential_thinking` first.

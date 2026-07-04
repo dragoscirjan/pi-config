@@ -3,8 +3,8 @@
     "./extensions/active-models.ts",
     "./extensions/model-recommend.ts"
   ],
-  "defaultProvider": "openrouter",
-  "defaultModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "defaultProvider": "github-copilot",
+  "defaultModel": "gemini-3-flash-preview",
   "lastChangelogVersion": "0.73.1",
   "packages": [
     "git:github.com/nicobailon/pi-mcp-adapter"
