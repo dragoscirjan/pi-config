@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastUpdated": "2026-07-03T22:57:15.095Z",
+  "lastUpdated": "2026-07-03T23:40:58.172Z",
   "aliases": {
     "elyxir": [
       "elixir"
@@ -94,7 +94,7 @@
     }
   },
   "router": {
-    "autoMode": "suggest",
+    "autoMode": "off",
     "learnEnabled": true,
     "minMarginForAutoPick": 6,
     "askOutcomeFeedback": false,

@@ -2,6 +2,26 @@
 
 This repository is a customized Pi setup featuring optimized model routing, profile visualization extensions, and a high-performance MCP toolset.
 
+## Table of Contents
+
+- [Goal](#goal)
+- [Extensions](#extensions)
+  - [/active-models](#active-models)
+  - [/model-recommend](#model-recommend)
+- [MCP Servers](#mcp-servers)
+  - [memory_context (context-mode)](#memory_context-context-mode)
+  - [codeindex_gitnexus](#codeindex_gitnexus)
+  - [sequential_thinking](#sequential_thinking)
+  - [webcrawl_searchable_web](#webcrawl_searchable_web)
+  - [docs_context7 & docs_github_grep](#docs_context7--docs_github_grep)
+- [Shared Components & Config](#shared-components--config)
+- [/active-models Usage](#active-models-usage)
+- [/model-recommend Usage](#model-recommend-usage)
+- [Online Learning & Auto-Routing](#online-learning--auto-routing)
+- [Security & Hygiene](#security--hygiene)
+
+---
+
 ## Goal
 
 Keep Pi lightweight, but add:
@@ -128,7 +148,7 @@ Registers the extensions and sets the global default model/provider for the agen
 
 ## Online Learning & Auto-Routing
 
-The router implements a **"Train as you go"** strategy:
+THE router implements a **"Train as you go"** strategy:
 1. **Analyze**: It identifies task requirements (StageA constraints).
 2. **Suggest**: It recommends the best model.
 3. **Learn**: When you pick a model, it logs a "win" for that model's features in that context.
