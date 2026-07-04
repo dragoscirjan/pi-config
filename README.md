@@ -1,6 +1,6 @@
 # Pi Config (Current Setup)
 
-This repository is a customized Pi setup featuring optimized model routing and profile visualization extensions.
+This repository is a customized Pi setup featuring optimized model routing, profile visualization extensions, and a high-performance MCP toolset.
 
 ## Goal
 
@@ -8,6 +8,7 @@ Keep Pi lightweight, but add:
 
 1. **Visibility**: Real-time triage of available models from authenticated providers.
 2. **Optimization**: Task-aware model recommendations that learn from your preferences to save 70-85% on API costs.
+3. **Efficiency**: Context-aware tool usage through specialized MCP servers to handle large-scale codebase analysis and data processing.
 
 ---
 
@@ -30,7 +31,40 @@ A sophisticated, "trained" model router that optimizes model choice based on tas
 
 ---
 
+## MCP Servers
+
+The setup leverages several MCP servers (configured in `agent/mcp.json`) to extend agent capabilities while maintaining a slim context window.
+
+### `memory_context` (context-mode)
+**Primary Role**: Context window protection and session continuity.
+- **Think in Code**: Encourages the agent to write scripts for data analysis locally instead of reading massive files into the LLM context.
+- **Persistent Memory**: Uses FTS5 indexing to store and retrieve session events, allowing for continuity across chat compactions.
+- **Savings**: Reduces token usage by up to 98% for heavy data operations.
+
+### `codeindex_gitnexus`
+**Primary Role**: Large-scale codebase understanding.
+- **Structural Analysis**: Performs deep symbol lookups, cross-reference tracking, and impact analysis.
+- **Execution Flows**: Traces how code functions together across the entire repository.
+
+### `sequential_thinking`
+**Primary Role**: Planning and multi-step reasoning.
+- **Process Management**: Helps the agent break down complex tasks into manageable steps with built-in reflection and course correction.
+
+### `webcrawl_searchable_web`
+**Primary Role**: High-fidelity web discovery.
+- **Markdown Conversion**: Fetches web content and converts it to Markdown for better LLM readability.
+
+### `docs_context7` & `docs_github_grep`
+**Primary Role**: Knowledge retrieval.
+- **Context7**: Access to up-to-date documentation for thousands of libraries.
+- **GitHub Grep**: Searches real-world usage patterns across millions of public repositories.
+
+---
+
 ## Shared Components & Config
+
+### `agent/mcp.json`
+Central configuration for all MCP servers. Defines commands, arguments, and environment variables for external tools.
 
 ### `agent/extensions/model-profile.ts`
 A shared library that builds the unified capability profiles used by both `/active-models` and `/model-recommend`.
