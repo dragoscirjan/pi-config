@@ -14,6 +14,5 @@ agent/git/
 .memory.jsonl
 .memory.json
 .memory.db
-model-taxonomy.json
 agent/model-recommend.db
 context-mode/

@@ -1,8 +1,10 @@
+import { syncBenchmarks, getAllBenchmarks, findBenchmarkForModel } from "./benchmarks";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
-import { getAgentDir, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, DynamicBorder } from "@mariozechner/pi-coding-agent";
+import { Container, type SelectItem, SelectList, Input, Text, Key, matchesKey } from "@mariozechner/pi-tui";
 import { type ModelLike as RegistryModelLike, buildCostHintIndex, buildModelProfile } from "./model-profile";
 
 type ModelLike = RegistryModelLike & { maxTokens?: number };
@@ -367,6 +369,20 @@ function normalizeText(raw: string): string {
 		.trim();
 }
 
+// ANSI styling (module-level, used in table rendering)
+const ANSIreset   = "\x1b[0m";
+const ANSIbold    = "\x1b[1m";
+const ANSIdim     = "\x1b[2m";
+const ANSIcyan    = "\x1b[36m";
+const ANSIgreen   = "\x1b[32m";
+const ANSImagenta = "\x1b[35m";
+const ANSIyellow  = "\x1b[33m";
+const ANSIblue    = "\x1b[34m";
+
+function padCol(value: string, width: number): string {
+	return value.length >= width ? value : value + " ".repeat(width - value.length);
+}
+
 function formatTokenCount(value: number): string {
 	if (!value || value <= 0) return "-";
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -452,6 +468,9 @@ function parseRecommendArgs(raw: string): RecommendOptions {
 			case "--rebuild-taxonomy":
 				opts.rebuildTaxonomy = true;
 				break;
+			case "--sync-benchmarks":
+				opts.syncBenchmarks = true;
+				break;
 			case "--set-auto": {
 				const mode = (tokens[++i] ?? "").toLowerCase();
 				if (mode === "off" || mode === "suggest" || mode === "enforce") opts.autoModeArg = mode;
@@ -468,6 +487,7 @@ function parseRecommendArgs(raw: string): RecommendOptions {
 			case "--reset-learning":
 				opts.resetLearning = true;
 				break;
+
 			case "--export-taxonomy":
 				opts.exportTaxonomyPath = tokens[++i];
 				break;
@@ -1280,11 +1300,46 @@ function applyRouterMigrations(db: DatabaseSync): void {
 	}
 }
 
+function normalizeLegacyRouterSchema(db: DatabaseSync): void {
+	const hasTable = (name: string): boolean => {
+		const row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name) as { name?: string } | undefined;
+		return Boolean(row?.name);
+	};
+
+	if (hasTable("router_weights")) {
+		const cols = db.prepare("PRAGMA table_info(router_weights)").all() as Array<{ name: string }>;
+		const names = new Set(cols.map((c) => String(c.name)));
+		if (names.has("type") && !names.has("scope")) {
+			try {
+				db.exec("ALTER TABLE router_weights RENAME COLUMN type TO scope");
+			} catch {
+				// Fallback for older SQLite: add scope and backfill from type
+				db.exec("ALTER TABLE router_weights ADD COLUMN scope TEXT");
+				db.exec("UPDATE router_weights SET scope = type WHERE scope IS NULL OR scope = ''");
+			}
+		}
+		if (!names.has("updates")) {
+			try {
+				db.exec("ALTER TABLE router_weights ADD COLUMN updates INTEGER NOT NULL DEFAULT 0");
+			} catch {
+				// ignore if already added by a concurrent init
+			}
+		}
+	}
+
+	// Early experimental schema used router_kv; migrate values into router_settings.
+	if (hasTable("router_kv")) {
+		db.exec("CREATE TABLE IF NOT EXISTS router_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+		db.exec("INSERT OR REPLACE INTO router_settings(key, value) SELECT key, value FROM router_kv");
+	}
+}
+
 function getRouterDb(): DatabaseSync {
 	if (routerDb) return routerDb;
 	const path = getRouterDbPath();
 	mkdirSync(dirname(path), { recursive: true });
 	const db = new DatabaseSync(path);
+	normalizeLegacyRouterSchema(db);
 	applyRouterMigrations(db);
 	routerDb = db;
 	return db;
@@ -1302,7 +1357,8 @@ function dbGetNumber(key: string, fallback = 0): number {
 }
 
 function dbSetNumber(key: string, value: number): void {
-	getRouterDb().prepare("INSERT INTO router_settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, String(value));
+	// SQLite compatibility: avoid ON CONFLICT ... DO UPDATE (not available on older builds)
+	getRouterDb().prepare("INSERT OR REPLACE INTO router_settings(key, value) VALUES(?, ?)").run(key, String(value));
 }
 
 function canonicalFamily(modelId: string): string {
@@ -1335,11 +1391,20 @@ function readWeight(scope: string, key: string): { weight: number; updates: numb
 }
 
 function addWeight(scope: string, key: string, delta: number): void {
-	getRouterDb()
-		.prepare(
-			"INSERT INTO router_weights(scope, key, weight, updates) VALUES(?, ?, ?, 1) ON CONFLICT(scope, key) DO UPDATE SET weight = weight + excluded.weight, updates = updates + 1",
-		)
-		.run(scope, key, delta);
+	const db = getRouterDb();
+	const row = db.prepare("SELECT weight, updates FROM router_weights WHERE scope = ? AND key = ?").get(scope, key) as
+		| { weight?: number; updates?: number }
+		| undefined;
+	if (row) {
+		db.prepare("UPDATE router_weights SET weight = ?, updates = ? WHERE scope = ? AND key = ?").run(
+			Number(row.weight ?? 0) + delta,
+			Number(row.updates ?? 0) + 1,
+			scope,
+			key,
+		);
+		return;
+	}
+	db.prepare("INSERT INTO router_weights(scope, key, weight, updates) VALUES(?, ?, ?, 1)").run(scope, key, delta);
 }
 
 function routerSampleCount(): number {
@@ -1595,12 +1660,16 @@ function deriveConstraints(intent: Intent, config: RecommendConfig): CapabilityC
 
 function relaxConstraints(base: CapabilityConstraints, level: number): CapabilityConstraints {
 	if (level <= 0) return base;
+	// If task demands heavy reasoning, hold reasoning score firm, sacrifice context/price instead
+	const reasonDrop = base.requireReasoning ? Math.round(level * 1.5) : level * 8;
+	const ctxDropFactor = base.requireReasoning ? 3.0 : 1.85;
+	
 	return {
 		minIntel: clamp(base.minIntel - level * 7, 26, 99),
-		minReasoning: clamp(base.minReasoning - level * 8, 8, 99),
+		minReasoning: clamp(base.minReasoning - reasonDrop, 8, 99),
 		minToolReliability: clamp(base.minToolReliability - level * 7, 14, 99),
-		minContext: Math.max(8_000, Math.round(base.minContext / Math.pow(1.85, level))),
-		requireReasoning: level >= 2 ? false : base.requireReasoning,
+		minContext: Math.max(8_000, Math.round(base.minContext / Math.pow(ctxDropFactor, level))),
+		requireReasoning: base.requireReasoning,
 		maxAffordablePrice: base.maxAffordablePrice + level * 2.5,
 	};
 }
@@ -1749,29 +1818,22 @@ async function computeRecommendations(
 	scored = applyCapabilityDeltaGuard(scored, intent, config);
 	scored = applyLearnedAdjustments(scored, config);
 
-	const dir = opts.sortDir === "desc" ? -1 : 1;
+	const dir = opts.sortDir === "asc" ? 1 : -1;
 	const compareModels = (a: ScoredModel, b: ScoredModel): number => {
 		let cmp = 0;
 		switch (opts.sortBy) {
-			case "score": {
+			case "score":
 				if (opts.strategy === "local-first") {
 					cmp = Number(a.isLocal) - Number(b.isLocal);
-					if (cmp === 0) cmp = a.breakdown.weightedBase - b.breakdown.weightedBase;
-					if (cmp === 0) cmp = b.effectivePrice - a.effectivePrice;
-				} else if (opts.strategy === "capability-first") {
-					cmp = a.breakdown.weightedBase - b.breakdown.weightedBase;
-					if (cmp === 0) cmp = b.effectivePrice - a.effectivePrice;
+					if (cmp === 0) cmp = a.score - b.score;
 				} else {
 					if (opts.localPrefer) {
 						cmp = Number(a.isLocal) - Number(b.isLocal);
 						if (cmp !== 0) return cmp * dir;
 					}
-					cmp = b.effectivePrice - a.effectivePrice;
-					if (cmp === 0) cmp = a.breakdown.weightedBase - b.breakdown.weightedBase;
+					cmp = a.score - b.score;
 				}
-				if (cmp === 0) cmp = a.score - b.score;
 				break;
-			}
 			case "intelligence":
 				cmp = a.intelligence - b.intelligence;
 				break;
@@ -1785,13 +1847,13 @@ async function computeRecommendations(
 				cmp = a.speed - b.speed;
 				break;
 			case "price":
-				cmp = a.effectivePrice - b.effectivePrice;
+				cmp = a.outputPrice - b.outputPrice;
 				break;
 			case "context":
 				cmp = a.contextWindow - b.contextWindow;
 				break;
 		}
-		if (cmp === 0) cmp = a.model.localeCompare(b.model) * -1;
+		if (cmp === 0) cmp = a.model.localeCompare(b.model);
 		return cmp * dir;
 	};
 
@@ -1814,37 +1876,61 @@ async function computeRecommendations(
 }
 
 function usageText(): string {
+	const reset = "\x1b[0m";
+	const bold = "\x1b[1m";
+	const dim = "\x1b[2m";
+	const cyan = "\x1b[36m";
+	const green = "\x1b[32m";
+	const magenta = "\x1b[35m";
+	const yellow = "\x1b[33m";
+
 	return [
-		"/model-recommend <task> [options]",
+		`${bold}${cyan}🧠 /model-recommend <task> [options]${reset}`,
+		`${dim}Intelligent model router with taxonomy, live enrichment, and online learning.${reset}`,
 		"",
-		"Options:",
-		"  --rebuild-taxonomy                      Reset taxonomy in DB to defaults, then optionally enrich",
-		"  --live-taxonomy                         Enrich current taxonomy with live sources (no reset)",
-		"  --live-sources <all|csv>                Override enabled live sources for this run",
-		"  --set-auto <off|suggest|enforce>        Auto-routing mode (suggest prompts user, enforce auto-picks on confidence)",
-		"  --set-learning <on|off>                 Enable/disable online learning",
-		"  --status                                Print router status, DB schema, sample counts",
-		"  --reset-learning                        Clear learned weights and training samples",
-		"  --export-taxonomy <path>                Export taxonomy from DB to JSON file",
-		"  --import-taxonomy <path>                Import taxonomy JSON as REPLACE (overwrites DB taxonomy)",
-		"  --merge-taxonomy <path>                 Merge taxonomy JSON into DB taxonomy",
-		"  --merge-policy <append|replace|keep>    Merge policy for --merge-taxonomy (default: append)",
-		"  --provider <name[,name]>                Filter providers (repeatable, comma-separated)",
-		"  --grep <text>                           Filter models by provider/model substring",
-		"  --trusted                               Keep only models from trusted org list",
-		"  --strategy <cheapest-capable|capability-first|local-first>   Ranking strategy",
-		"  --local-prefer                          Prefer local models when scores are similar",
-		"  --local-only                            Only local providers/models",
-		"  --sort-by <score|intelligence|reasoning|reliability|speed|price|context> [asc|desc]",
-		"                                          Sort output table",
-		"  --limit <n>                             Number of models to display",
-		"  --explain                               Show per-model score breakdown and reasons",
-		"  --help                                  Show this help",
+		`${bold}TAXONOMY:${reset}`,
+		`  ${green}--rebuild-taxonomy${reset}                     Reset taxonomy in DB to defaults, then optionally enrich`,
+		`  ${green}--sync-benchmarks${reset}                      Fetch and update Aider leaderboard dataset into DB`,
+		`  ${green}--live-taxonomy${reset}                        Enrich current taxonomy with live sources (no reset)`,
+		`  ${green}--live-sources <all|csv>${reset}               Override enabled live sources for this run`,
+		`  ${green}--export-taxonomy <path>${reset}               Export taxonomy from DB to JSON file`,
+		`  ${green}--import-taxonomy <path>${reset}               Import taxonomy JSON as REPLACE (overwrites DB taxonomy)`,
+		`  ${green}--merge-taxonomy <path>${reset}                Merge taxonomy JSON into DB taxonomy`,
+		`  ${green}--merge-policy <append|replace|keep>${reset}   Merge policy for --merge-taxonomy (default: append)`,
 		"",
-		"Notes:",
-		"  - Config file: agent/model-recommend-config.json",
-		"  - Data DB: agent/model-recommend.db (taxonomy + weights + samples + migrations)",
-		"  - Legacy taxonomy JSON (~/.pi/model-taxonomy.json) is imported once if DB taxonomy is empty",
+		`${bold}ROUTER & LEARNING:${reset}`,
+		`  ${green}--set-auto <off|suggest|enforce>${reset}       Auto-routing mode`,
+		`  ${dim}    off     – no automatic routing (default)${reset}`,
+		`  ${dim}    suggest – before each prompt: interactive picker (↑↓ 5 recs, keep current, custom model)${reset}`,
+		`  ${dim}    enforce – silently auto-switch to top recommendation before each prompt${reset}`,
+		`  ${green}--set-learning <on|off>${reset}                Enable/disable online learning`,
+		`  ${green}--status${reset}                               Print router status, DB schema, sample counts`,
+		`  ${green}--reset-learning${reset}                       Clear learned weights and training samples`,
+
+		"",
+		`${bold}FILTERS & STRATEGY:${reset}`,
+		`  ${green}--provider <name[,name]>${reset}               Filter providers (repeatable, comma-separated)`,
+		`  ${green}--grep <text>${reset}                          Filter models by provider/model substring`,
+		`  ${green}--trusted${reset}                              Keep only models from trusted org list`,
+		`  ${green}--strategy <cheapest-capable|capability-first|local-first>${reset}`,
+		`                                            Ranking strategy`,
+		`  ${green}--local-prefer${reset}                         Prefer local models when scores are similar`,
+		`  ${green}--local-only${reset}                           Only local providers/models`,
+		`  ${green}--sort-by <score|intelligence|reasoning|reliability|speed|price|context> [asc|desc]${reset}`,
+		`  ${green}--limit <n>${reset}                            Number of models to display`,
+		`  ${green}--explain${reset}                              Show per-model score breakdown and reasons`,
+		`  ${green}--help${reset}                                 Show this help`,
+		"",
+		`${bold}EXAMPLES:${reset}`,
+		`  /model-recommend write a secure auth handler in rust`,
+		`  /model-recommend --strategy capability-first secure multi-tenant auth design`,
+		`  /model-recommend --set-auto suggest`,
+		"",
+		`${bold}NOTES:${reset}`,
+		`  ${dim}- Config file: agent/model-recommend-config.json${reset}`,
+		`  ${dim}- Data DB: agent/model-recommend.db (taxonomy + weights + samples + migrations)${reset}`,
+		`  ${dim}- Legacy taxonomy JSON (~/.pi/model-taxonomy.json) is imported once if DB taxonomy is empty${reset}`,
+		`${yellow}${dim}Tip: task is positional (no --task needed).${reset}`,
 	].join("\n");
 }
 
@@ -1924,11 +2010,31 @@ async function setCurrentModel(pi: ExtensionAPI, ctx: any, selected: ScoredModel
 	return await pi.setModel(model as any);
 }
 
+let benchmarksCache: any = null;
 export default function modelRecommendExtension(pi: ExtensionAPI) {
 	pi.registerCommand("model-recommend", {
 		description: "Recommend models for a task using auth-aware model access + local taxonomy scoring",
 		handler: async (args, ctx) => {
 			const opts = parseRecommendArgs(args);
+			
+			if (opts.syncBenchmarks) {
+				ctx.ui.notify("Syncing Aider LLM benchmarks...", "info");
+				const count = await syncBenchmarks();
+				benchmarksCache = getAllBenchmarks();
+				ctx.ui.notify(`Synced ${count} benchmark entries.`, "success");
+				if (!opts.task) return;
+			}
+			
+			// Auto-sync on first run if DB empty
+			if (!benchmarksCache) benchmarksCache = getAllBenchmarks();
+			if (benchmarksCache.length === 0) {
+				ctx.ui.notify("First run: Syncing Aider LLM benchmarks database...", "info");
+				await syncBenchmarks();
+				benchmarksCache = getAllBenchmarks();
+			}
+			
+			const benchmarks = benchmarksCache;
+
 			const config = ensureRecommendConfig();
 
 			if (opts.autoModeArg) config.router.autoMode = opts.autoModeArg;
@@ -2021,42 +2127,114 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
 			}
 
 			const rows = top.map((m, i) => ({
-				rank: String(i + 1),
-				score: m.score.toFixed(1),
+				m,
+				rank:     String(i + 1),
+				score:    m.score.toFixed(1),
 				provider: m.provider,
-				model: m.model,
-				intel: String(Math.round(m.intelligence)),
-				reason: String(Math.round(m.reasoning)),
-				reliab: String(Math.round(m.toolReliability)),
-				speed: `${Math.round(m.speed)} tps`,
-				price: `${formatMoney(m.inputPrice)} / ${formatMoney(m.outputPrice)}${m.priceEstimated ? " ~" : ""}`,
-				context: formatTokenCount(m.contextWindow),
-				type: m.breakdown.reasons.some((r) => r.startsWith("near-miss:")) ? (m.isLocal ? "local*" : "commercial*") : m.isLocal ? "local" : "commercial",
+				model:    m.model,
+				intel:    String(Math.round(m.intelligence)),
+				reason:   String(Math.round(m.reasoning)),
+				reliab:   String(Math.round(m.toolReliability)),
+				speed:    `${Math.round(m.speed)} tps`,
+				price:    `${formatMoney(m.inputPrice)} / ${formatMoney(m.outputPrice)}${m.priceEstimated ? " ~" : ""}`,
+				context:  formatTokenCount(m.contextWindow),
+				type:     m.breakdown.reasons.some((r) => r.startsWith("near-miss:")) ? (m.isLocal ? "local*" : "commercial*") : m.isLocal ? "local" : "commercial",
 			}));
-			const header = "rank  score  provider  model  intel  reason  reliab  speed  price(in/out per 1M)  context  type";
-			const lines = rows.map((r) => `${r.rank}  ${r.score}  ${r.provider}  ${r.model}  ${r.intel}  ${r.reason}  ${r.reliab}  ${r.speed}  ${r.price}  ${r.context}  ${r.type}`);
+
+			// Dynamic column widths
+			const cRank     = Math.max("#".length,                    ...rows.map(r => r.rank.length));
+			const cScore    = Math.max("SCORE".length,                 ...rows.map(r => r.score.length));
+			const cProvider = Math.max("PROVIDER".length,              ...rows.map(r => r.provider.length));
+			const cModel    = Math.max("MODEL".length,                 ...rows.map(r => r.model.length));
+			const cIntel    = Math.max("INTEL".length,                 ...rows.map(r => r.intel.length));
+			const cReason   = Math.max("REASON".length,                ...rows.map(r => r.reason.length));
+			const cReliab   = Math.max("RELIAB".length,                ...rows.map(r => r.reliab.length));
+			const cSpeed    = Math.max("SPEED".length,                 ...rows.map(r => r.speed.length));
+			const cPrice    = Math.max("PRICE (in/out per 1M)".length, ...rows.map(r => r.price.length));
+			const cContext  = Math.max("CONTEXT".length,               ...rows.map(r => r.context.length));
+			const cType     = Math.max("TYPE".length,                  ...rows.map(r => r.type.length));
+
+			const totalWidth = cRank + cScore + cProvider + cModel + cIntel + cReason + cReliab + cSpeed + cPrice + cContext + cType + 10 * 3;
+			const sep = `${ANSIdim}${"─".repeat(totalWidth)}${ANSIreset}`;
+
+			const hdr = [
+				padCol("#",                    cRank),
+				padCol("SCORE",                cScore),
+				padCol("PROVIDER",             cProvider),
+				padCol("MODEL",                cModel),
+				padCol("INTEL",                cIntel),
+				padCol("REASON",               cReason),
+				padCol("RELIAB",               cReliab),
+				padCol("SPEED",                cSpeed),
+				padCol("PRICE (in/out per 1M)",cPrice),
+				padCol("CONTEXT",              cContext),
+				"TYPE",
+			].join("   ");
+
+			const tableLines = rows.map((r, i) => {
+				const isTop    = i === 0;
+				const isLearned = r.m.breakdown.reasons.some(x => x.startsWith("learned-bias") && !x.startsWith("learned-bias=0") && !x.includes("=-0"));
+				const rankStr   = isTop ? `${ANSIgreen}${padCol(r.rank, cRank)}${ANSIreset}` : padCol(r.rank, cRank);
+				const provStr   = padCol(r.provider, cProvider);
+				const modelStr  = `${ANSIcyan}${padCol(r.model, cModel)}${ANSIreset}`;
+				const learnedMark = isLearned ? ` ${ANSImagenta}★learned${ANSIreset}` : "";
+				const typeStr   = r.type.includes("*") ? `${ANSIyellow}${r.type}${ANSIreset}` : `${ANSIdim}${r.type}${ANSIreset}`;
+				return [
+					rankStr,
+					padCol(r.score,   cScore),
+					provStr,
+					modelStr,
+					padCol(r.intel,   cIntel),
+					padCol(r.reason,  cReason),
+					padCol(r.reliab,  cReliab),
+					padCol(r.speed,   cSpeed),
+					padCol(r.price,   cPrice),
+					padCol(r.context, cContext),
+					typeStr + learnedMark,
+				].join("   ");
+			});
+
 			const needs = intent.capabilityNeeds;
 			const preface = [
-				`Task: ${opts.task}`,
-				`Intent: ${Array.from(intent.domains).join("/") || "general"} | Complexity: ${intent.complexity}/100`,
-				`Needs: reasoning=${needs.reasoningDepth.toFixed(2)} system=${needs.systemBreadth.toFixed(2)} correctness=${needs.correctnessRisk.toFixed(2)} context=${needs.contextVolume.toFixed(2)} safety=${needs.safetyCriticality.toFixed(2)} cost=${needs.costSensitivity.toFixed(2)} latency=${needs.latencySensitivity.toFixed(2)}`,
-				`StageA: intel>=${stageA.constraints.minIntel} reason>=${stageA.constraints.minReasoning} tool>=${stageA.constraints.minToolReliability} context>=${stageA.constraints.minContext} | relax=${stageA.relaxLevel}`,
-				`Taxonomy: ${taxState.rebuilt ? "rebuilt" : "ready"}${taxState.enriched ? " + live-signals" : ""}`,
+				`${ANSIbold}Task:${ANSIreset} ${opts.task}`,
+				`${ANSIbold}Intent:${ANSIreset} ${Array.from(intent.domains).join("/") || "general"} | ${ANSIbold}Complexity:${ANSIreset} ${intent.complexity}/100`,
+				`${ANSIdim}Needs: reasoning=${needs.reasoningDepth.toFixed(2)} system=${needs.systemBreadth.toFixed(2)} correctness=${needs.correctnessRisk.toFixed(2)} context=${needs.contextVolume.toFixed(2)} safety=${needs.safetyCriticality.toFixed(2)} cost=${needs.costSensitivity.toFixed(2)} latency=${needs.latencySensitivity.toFixed(2)}${ANSIreset}`,
+				`${ANSIdim}StageA: intel>=${stageA.constraints.minIntel} reason>=${stageA.constraints.minReasoning} tool>=${stageA.constraints.minToolReliability} context>=${stageA.constraints.minContext} | relax=${stageA.relaxLevel}${ANSIreset}`,
+				`${ANSIdim}Taxonomy: ${taxState.rebuilt ? "rebuilt" : "ready"}${taxState.enriched ? " + live-signals" : ""}${ANSIreset}`,
 			].join("\n");
-			const output = [preface, "Type marker: * = near-miss fallback (did not fully satisfy StageA)", header, ...lines].join("\n");
-			if (ctx.hasUI) ctx.ui.notify(output, "info");
-			else console.log(output);
 
-			if (config.router.learnEnabled) {
-				const selected = await maybeChooseModelInteractive(ctx, top.slice(0, 5), true, "Choose best model for this task (training)");
-				if (selected) {
-					const ok = await setCurrentModel(pi, ctx, selected);
-					const margin = top.length > 1 ? top[0].score - top[1].score : top[0].score;
-					persistTrainingSample(opts.task, "manual", intent, selected, top.slice(0, 5), margin);
-					trainPairwiseSelection(config, selected, top.slice(0, 5));
-					if (ctx.hasUI) ctx.ui.notify(`Learned preference: ${selected.provider}/${selected.model}${ok ? " (model switched)" : ""}`, "success");
+			const output = [
+				preface,
+				`${ANSIdim}* = near-miss fallback (did not fully satisfy StageA)${ANSIreset}`,
+				sep,
+				`${ANSIbold}${ANSIdim}${hdr}${ANSIreset}`,
+				sep,
+				...tableLines,
+				sep,
+			].join("\n");
+
+			let explainBlock = "";
+			if (opts.explain) {
+				const explainLines: string[] = [`\n${ANSIbold}── Score Breakdown ──${ANSIreset}`];
+				for (const r of rows) {
+					const b = r.m.breakdown;
+					explainLines.push(
+						`${ANSIcyan}${r.provider}/${r.model}${ANSIreset}`,
+						`  ${ANSIdim}intel-fit=${b.normIntel.toFixed(2)}  speed-fit=${b.normSpeed.toFixed(2)}  price-fit=${b.normPrice.toFixed(2)}  ctx-fit=${b.normContext.toFixed(2)}${ANSIreset}`,
+						`  ${ANSIdim}capability=${(b.weightedBase*100).toFixed(1)}%  affinity=${(b.affinity*100).toFixed(1)}%  jitter=${b.tieJitter.toFixed(3)}  final=${b.final.toFixed(1)}${ANSIreset}`,
+						...b.reasons.map(reason => `  ${ANSIdim}· ${reason}${ANSIreset}`),
+					);
 				}
+				explainBlock = explainLines.join("\n");
 			}
+
+
+			// No learning on manual /model-recommend runs.
+			// Learning happens only via before_agent_start auto-routing (set-auto suggest/enforce).
+
+			const finalOutput = explainBlock ? [output, explainBlock].join("\n") : output;
+			if (ctx.hasUI) ctx.ui.notify(finalOutput, "info");
+			else console.log(finalOutput);
 		},
 	});
 
@@ -2065,19 +2243,150 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
 		if (config.router.autoMode === "off") return;
 		const prompt = String((event as any).prompt ?? "").trim();
 		if (!prompt || prompt.startsWith("/")) return;
+
 		const opts = parseRecommendArgs("");
-		opts.limit = 5;
-		const { top, intent } = await computeRecommendations(prompt, opts, ctx as any, config);
+		opts.limit = 5;  // top array → up to 5 recommendations in the picker
+		const { top, intent } = await computeRecommendations(prompt, opts, ctx as any, config, true);
 		if (top.length === 0) return;
+
 		const margin = top.length > 1 ? top[0].score - top[1].score : 100;
-		let selected: ScoredModel | undefined = top[0];
-		const shouldAsk = config.router.autoMode === "suggest" || (config.router.autoMode === "enforce" && margin < config.router.minMarginForAutoPick);
-		if (shouldAsk) selected = await maybeChooseModelInteractive(ctx as any, top.slice(0, 5), true, "Pick model for this prompt");
+		const currentModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "current";
+
+		// ── ENFORCE: auto-switch silently ────────────────────────────────────────
+		if (config.router.autoMode === "enforce") {
+			const selected = top[0];
+			const ok = await setCurrentModel(pi, ctx as any, selected);
+			(ctx as any).ui?.notify(`Routing: ${selected.provider}/${selected.model}${ok ? "" : " (switch failed)"}`, ok ? "info" : "warning");
+			if (config.router.learnEnabled) {
+				persistTrainingSample(prompt, "auto-enforce", intent, selected, top.slice(0, 5), margin);
+				trainPairwiseSelection(config, selected, top.slice(0, 5));
+			}
+			return;
+		}
+
+		// ── SUGGEST: interactive picker ──────────────────────────────────────────
+		if (!(ctx as any).hasUI) {
+			// Headless mode: just print suggestions, don't block
+			const lines = top.slice(0, 5).map((m, i) =>
+				`  ${i + 1}. ${m.provider}/${m.model}  score=${m.score.toFixed(1)} reason=${m.reasoning} intel=${m.intelligence}`
+			);
+			console.log(`\n── Model Suggestions (suggest mode) ─────────────────\n${lines.join("\n")}\n  6. Keep current: ${currentModel}\n─────────────────────────────────────────────────────\n`);
+			return;
+		}
+
+		// Build SelectList items: top 5 recommendations + keep current + custom entry
+		const listItems: SelectItem[] = top.slice(0, 5).map((m, i) => ({
+			value: `rec:${i}`,
+			label: `${m.provider}/${m.model}`,
+			description: `score ${m.score.toFixed(1)}  intel ${m.intelligence}  reason ${m.reasoning}  ${m.pricing ? `$${m.pricing.inputCostPer1M?.toFixed(2)}/$${m.pricing.outputCostPer1M?.toFixed(2)}` : ""}`,
+		}));
+		listItems.push({
+			value: "keep",
+			label: `⟳  Keep current  (${currentModel})`,
+			description: "Continue with currently active model",
+		});
+		listItems.push({
+			value: "custom",
+			label: "✎  Enter custom model...",
+			description: "Type provider/model-id manually",
+		});
+
+		const choice = await (ctx as any).ui.custom<string | null>((tui: any, theme: any, _kb: any, done: (v: string | null) => void) => {
+			const container = new Container();
+			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+			container.addChild(new Text(theme.fg("accent", theme.bold(" Model Suggestions")), 1, 0));
+			container.addChild(new Text(theme.fg("dim", ` Task intent: ${intent?.dominant ?? "general"} · complexity ${intent?.complexity ?? "?"}/100`), 1, 0));
+			container.addChild(new Text("", 0, 0));
+
+			class AutoWidthSelectList extends SelectList {
+				getPrimaryColumnWidth() {
+					return Math.max(20, ...this.filteredItems.map((i: any) => (i.label ? i.label.length : 0))) + 2;
+				}
+				truncatePrimary(item: any) {
+					return item.label || item.value;
+				}
+			}
+			const selectList = new AutoWidthSelectList(listItems, Math.min(listItems.length, 10), {
+				selectedPrefix: (t: string) => theme.fg("accent", t),
+				selectedText:   (t: string) => theme.fg("accent", t),
+				description:    (t: string) => theme.fg("dim", t),
+				scrollInfo:     (t: string) => theme.fg("dim", t),
+				noMatch:        (t: string) => theme.fg("warning", t),
+			});
+			selectList.onSelect  = (item: SelectItem) => done(item.value as string);
+			selectList.onCancel  = () => done(null);
+			container.addChild(selectList);
+
+			container.addChild(new Text(theme.fg("dim", " ↑↓ navigate · enter select · esc keep current"), 1, 0));
+			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+
+			return {
+				render:       (w: number) => container.render(w),
+				invalidate:   () => container.invalidate(),
+				handleInput:  (data: Uint8Array) => { selectList.handleInput(data); tui.requestRender(); },
+			};
+		});
+
+		// Esc or null → keep current, no learning
+		if (choice === null) return;
+
+		// "keep" → record that user preferred current model over suggestions
+		if (choice === "keep") {
+			if (config.router.learnEnabled) {
+				const fakeKeep = { provider: ctx.model?.provider ?? "", model: ctx.model?.id ?? "", score: 0, intelligence: 0, reasoning: 0, toolReliability: 0 } as ScoredModel;
+				persistTrainingSample(prompt, "user-keep", intent, fakeKeep, top.slice(0, 5), margin);
+			}
+			(ctx as any).ui.notify(`Keeping current model: ${currentModel}`, "info");
+			return;
+		}
+
+		// "custom" → open an Input dialog
+		if (choice === "custom") {
+			const customId = await (ctx as any).ui.custom<string | null>((tui: any, theme: any, _kb: any, done: (v: string | null) => void) => {
+				const container = new Container();
+				container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+				container.addChild(new Text(theme.fg("accent", theme.bold(" Enter model  (provider/model-id)")), 1, 0));
+				const inp = new Input("", 60);
+				container.addChild(inp as any);
+				container.addChild(new Text(theme.fg("dim", " enter confirm · esc cancel"), 1, 0));
+				container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+
+				return {
+					render:      (w: number) => container.render(w),
+					invalidate:  () => container.invalidate(),
+					handleInput: (data: Uint8Array) => {
+						if (matchesKey(data, Key.enter)) { done(inp.getValue().trim() || null); return; }
+						if (matchesKey(data, Key.escape)) { done(null); return; }
+						inp.handleInput(data);
+						tui.requestRender();
+					},
+				};
+			});
+			if (!customId) return;
+			// Find model in registry
+			const found = findModelFromInput(customId, (ctx as any).modelRegistry.getAll() as any);
+			if (!found) {
+				(ctx as any).ui.notify(`Model not found in registry: ${customId}`, "warning");
+				return;
+			}
+			const ok = await pi.setModel(found as any);
+			(ctx as any).ui.notify(`Switched to: ${found.provider}/${found.id}${ok ? "" : " (switch failed)"}`, ok ? "info" : "warning");
+			if (config.router.learnEnabled) {
+				const custom: ScoredModel = { provider: found.provider, model: found.id, score: 50, intelligence: 50, reasoning: 50, toolReliability: 50 } as ScoredModel;
+				persistTrainingSample(prompt, "user-custom", intent, custom, top.slice(0, 5), margin);
+				trainPairwiseSelection(config, custom, top.slice(0, 5));
+			}
+			return;
+		}
+
+		// Numeric recommendation pick: "rec:0" … "rec:4"
+		const idx = parseInt(choice.replace("rec:", ""), 10);
+		const selected = top[idx];
 		if (!selected) return;
 		const ok = await setCurrentModel(pi, ctx as any, selected);
-		if ((ctx as any).hasUI) (ctx as any).ui.notify(`Routing: ${selected.provider}/${selected.model}${ok ? "" : " (switch failed)"}`, ok ? "info" : "warning");
+		(ctx as any).ui.notify(`Routing: ${selected.provider}/${selected.model}${ok ? "" : " (switch failed)"}`, ok ? "info" : "warning");
 		if (config.router.learnEnabled) {
-			persistTrainingSample(prompt, shouldAsk ? "auto-suggest" : "auto-enforce", intent, selected, top.slice(0, 5), margin);
+			persistTrainingSample(prompt, "user-pick", intent, selected, top.slice(0, 5), margin);
 			trainPairwiseSelection(config, selected, top.slice(0, 5));
 		}
 	});

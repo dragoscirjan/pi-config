@@ -1,39 +1,13 @@
-export type ModelLike = {
-	provider: string;
-	id: string;
-	contextWindow?: number;
-	maxTokens?: number;
-	reasoning?: boolean;
-	input?: Array<"text" | "image">;
-	cost?: { input?: number; output?: number };
-};
-
-export type ModelProfile = {
-	provider: string;
-	model: string;
-	intel: number;
-	reasoning: number;
-	context: number;
-	speed: number;
-	toolReliability: number;
-	costIn: number;
-	costOut: number;
-	effectivePrice: number;
-	priceEstimated: boolean;
-	supportsImages: boolean;
-	isLocal: boolean;
-};
-
-export type CostHint = { input: number; output: number; count: number };
-export type CostHintIndex = Map<string, CostHint>;
+import type { BenchmarkStats } from "./benchmarks";
+import type { ModelLike, ModelProfile, CostHint, CostHintIndex } from "./types";
 
 const LOCAL_PROVIDER_HINTS = ["ollama", "lmstudio", "llama.cpp", "llamacpp", "vllm", "local", "openwebui", "kobold", "jan"];
 
-function clamp(n: number, min: number, max: number): number {
+export function clamp(n: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, n));
 }
 
-function hashString(value: string): number {
+export function hashString(value: string): number {
 	let hash = 0;
 	for (let i = 0; i < value.length; i++) hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
 	return hash;
@@ -53,7 +27,11 @@ export function getModelSizeBillionHint(modelId: string): number {
 	return Number.isFinite(v) ? v : 0;
 }
 
-export function estimateIntel(model: ModelLike): number {
+export function estimateIntel(model: ModelLike, benchmark?: BenchmarkStats): number {
+	if (benchmark?.editPassRate) {
+		const normalized = 20 + (benchmark.editPassRate / 85) * 80;
+		return clamp(Math.round(normalized), 5, 100);
+	}
 	const name = model.id.toLowerCase();
 	const sizeB = getModelSizeBillionHint(model.id);
 	let score = 44;
@@ -88,16 +66,27 @@ export function estimateSpeed(model: ModelLike): number {
 	return clamp(Math.round(score), 12, 170);
 }
 
-export function estimateReasoning(model: ModelLike, intel: number): number {
+export function estimateReasoning(model: ModelLike, intel: number, benchmark?: BenchmarkStats): number {
+	if (benchmark?.refactorPassRate) {
+		const normalized = 20 + (benchmark.refactorPassRate / 78) * 80;
+		return clamp(Math.round(normalized), 5, 100);
+	} else if (benchmark?.editPassRate && model.reasoning) {
+		const normalized = 20 + (benchmark.editPassRate / 85) * 80;
+		return clamp(Math.round(normalized), 5, 100);
+	}
 	const name = model.id.toLowerCase();
-	let score = model.reasoning ? 75 : 35;
+	let score = model.reasoning ? 55 : 35;
 	if (["reason", "think", "r1", "o1", "o3", "chain", "deliberate"].some((k) => name.includes(k))) score += 20;
 	if (["mini", "flash", "lite", "nano"].some((k) => name.includes(k))) score -= 10;
 	score += (intel - 50) * 0.2;
 	return clamp(Math.round(score), 5, 100);
 }
 
-export function estimateToolReliability(model: ModelLike, intel: number, reasoning: number): number {
+export function estimateToolReliability(model: ModelLike, intel: number, reasoning: number, benchmark?: BenchmarkStats): number {
+	if (benchmark?.editPassRate) {
+		const normalized = 20 + (benchmark.editPassRate / 85) * 80;
+		return clamp(Math.round(normalized), 5, 100);
+	}
 	const name = model.id.toLowerCase();
 	let score = 40;
 	score += intel * 0.35;
@@ -157,11 +146,11 @@ function resolveCost(model: ModelLike, hints?: CostHintIndex): { input: number; 
 	return { input: nativeIn, output: nativeOut, estimated: false };
 }
 
-export function buildModelProfile(model: ModelLike, costHints?: CostHintIndex): ModelProfile {
-	const intel = estimateIntel(model);
+export function buildModelProfile(model: ModelLike, costHints?: CostHintIndex, benchmark?: BenchmarkStats): ModelProfile {
+	const intel = estimateIntel(model, benchmark);
 	const speed = estimateSpeed(model);
-	const reasoning = estimateReasoning(model, intel);
-	const toolReliability = estimateToolReliability(model, intel, reasoning);
+	const reasoning = estimateReasoning(model, intel, benchmark);
+	const toolReliability = estimateToolReliability(model, intel, reasoning, benchmark);
 	const cost = resolveCost(model, costHints);
 	const costIn = cost.input;
 	const costOut = cost.output;
@@ -181,8 +170,4 @@ export function buildModelProfile(model: ModelLike, costHints?: CostHintIndex): 
 		supportsImages: (model.input ?? []).includes("image"),
 		isLocal: isLocalModel(model.provider),
 	};
-}
-
-export default function modelProfileHelperExtensionNoop() {
-	// helper module intentionally exports a no-op extension factory
 }
