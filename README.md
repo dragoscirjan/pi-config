@@ -9,6 +9,7 @@ This repository is a customized Pi setup featuring optimized model routing, prof
   - [model-recommend](#model-recommend)
   - [context-mode](#context-mode)
   - [pi-mcp-adapter](#pi-mcp-adapter)
+  - [pi-subagents](#pi-subagents)
 - [MCP Servers](#mcp-servers)
   - [memory_context (context-mode)](#memory_context-context-mode)
   - [codeindex_gitnexus](#codeindex_gitnexus)
@@ -47,6 +48,10 @@ A local bootstrap extension (installed via `install-context-mode.sh`) that integ
 ### `pi-mcp-adapter`
 **Package**: `git:github.com/nicobailon/pi-mcp-adapter`
 An external community package that provides advanced protocol bridging and lifecycle management for MCP servers in Pi.
+### `pi-subagents`
+**Package**: `npm:pi-subagents`
+An orchestrator-focused extension for async subagent delegation. It supports advanced features such as sequential/fanout chain workflows, granular context control (fork vs fresh), wait-for-condition validation, git worktree isolation, and persistent subagent memory. Our `model-recommend` module seamlessly intercepts its `before_agent_start` spawns to provide dynamic, task-specific cost optimization and rate-limit jitter for every subagent.
+
 
 ---
 
