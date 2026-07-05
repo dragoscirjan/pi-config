@@ -1,10 +1,12 @@
 {
   "extensions": [
     "./extensions/context-mode",
-    "./extensions/model-recommend"
+    "./extensions/model-recommend",
+    "./extensions/pi-twig",
+    "./extensions/pi-issue-tracking"
   ],
   "defaultProvider": "github-copilot",
-  "defaultModel": "gemini-3.1-pro-preview",
+  "defaultModel": "gemini-3-flash-preview",
   "lastChangelogVersion": "0.73.1",
   "packages": [
     "git:github.com/nicobailon/pi-mcp-adapter",
