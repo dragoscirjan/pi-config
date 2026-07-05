@@ -1,7 +1,7 @@
 {
   "extensions": [
-    "./extensions/active-models.ts",
-    "./extensions/model-recommend.ts"
+    "./extensions/context-mode",
+    "./extensions/model-recommend"
   ],
   "defaultProvider": "github-copilot",
   "defaultModel": "gemini-3.1-pro-preview",

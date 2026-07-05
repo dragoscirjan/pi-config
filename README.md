@@ -6,8 +6,9 @@ This repository is a customized Pi setup featuring optimized model routing, prof
 
 - [Goal](#goal)
 - [Extensions](#extensions)
-  - [/active-models](#active-models)
-  - [/model-recommend](#model-recommend)
+  - [model-recommend](#model-recommend)
+  - [context-mode](#context-mode)
+  - [pi-mcp-adapter](#pi-mcp-adapter)
 - [MCP Servers](#mcp-servers)
   - [memory_context (context-mode)](#memory_context-context-mode)
   - [codeindex_gitnexus](#codeindex_gitnexus)
@@ -34,21 +35,21 @@ Keep Pi lightweight, but add:
 
 ## Extensions
 
-### `/active-models`
-**Package**: `agent/extensions/model-recommend/`
-Provides a comprehensive view of all available models from your authenticated providers (found in `agent/auth.json`).
-- **Capability Profiles**: Shows intelligence, reasoning, speed, price, and context window.
-- **Triage**: Sort and filter models to find exactly what you need for a specific task.
-- **Price Estimation**: Estimates costs for providers like GitHub Copilot that don't expose them directly.
+The following extensions and packages are actively installed and configured in `agent/settings.json`:
 
-### `/model-recommend`
-**Package**: `agent/extensions/model-recommend/`
-A sophisticated, modular "trained" model router that optimizes model choice based on task complexity and user preference.
-- **Modular Design**: Broken down into specific files for intent analysis, profiling, scoring, benchmarks, and SQLite learning.
-- **Local Learning**: Trains a pairwise preference model in real-time based on which models you pick.
-- **Auto-Routing**: Can suggest or automatically switch models per-prompt via the `before_agent_start` hook.
-- **Taxonomy Driven**: Uses a concept-based taxonomy (stored in SQLite) to analyze task intent and complexity.
-- **Portability**: Full support for importing, exporting, and merging taxonomies across different environments.
+### `model-recommend`
+**Location**: `agent/extensions/model-recommend/`
+A sophisticated, modular "trained" model router that optimizes model choice based on task complexity and user preference. It registers two main commands:
+- `/active-models`: Triage, visualize, and estimate pricing for all available models from authenticated providers.
+- `/model-recommend`: Rank models, learn from pairwise preferences, and optionally auto-route prompts (via `before_agent_start` hook) using a concept-based taxonomy.
+
+### `context-mode`
+**Location**: `agent/extensions/context-mode/`
+A local bootstrap extension (installed via `install-context-mode.sh`) that integrates the `memory_context` MCP server directly into Pi's lifecycle.
+
+### `pi-mcp-adapter`
+**Package**: `git:github.com/nicobailon/pi-mcp-adapter`
+An external community package that provides advanced protocol bridging and lifecycle management for MCP servers in Pi.
 
 ---
 
