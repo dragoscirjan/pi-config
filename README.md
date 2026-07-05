@@ -16,10 +16,6 @@ This repository is a customized Pi setup featuring optimized model routing, prof
   - [webcrawl_searchable_web](#webcrawl_searchable_web)
   - [docs_context7 & docs_github_grep](#docs_context7--docs_github_grep)
 - [Shared Components & Config](#shared-components--config)
-- [/active-models Usage](#active-models-usage)
-- [/model-recommend Usage](#model-recommend-usage)
-- [Online Learning & Auto-Routing](#online-learning--auto-routing)
-- [Security & Hygiene](#security--hygiene)
 
 ---
 
@@ -38,7 +34,8 @@ Keep Pi lightweight, but add:
 The following extensions and packages are actively installed and configured in `agent/settings.json`:
 
 ### `model-recommend`
-**Location**: `agent/extensions/model-recommend/`
+**Location**: [`agent/extensions/model-recommend/`](agent/extensions/model-recommend/README.md)
+
 A sophisticated, modular "trained" model router that optimizes model choice based on task complexity and user preference. It registers two main commands:
 - `/active-models`: Triage, visualize, and estimate pricing for all available models from authenticated providers.
 - `/model-recommend`: Rank models, learn from pairwise preferences, and optionally auto-route prompts (via `before_agent_start` hook) using a concept-based taxonomy.
@@ -105,61 +102,3 @@ Human-editable tuning for the router, including:
 
 ### `agent/settings.json`
 Registers the extensions and sets the global default model/provider for the agent.
-
----
-
-## `/active-models` Usage
-
-```text
-/active-models [free-text] [options]
-```
-
-**Common Options:**
-- `--provider, -p <name[,name]>`: Filter by provider(s).
-- `--grep, -g <text>`: Filter by name substring.
-- `--sort-by <field> [asc|desc]`: Sort by intelligence, reasoning, reliability, speed, price, or context.
-- `--min-intel <n>` / `--max-price <n>`: Filter by minimum capability or maximum cost.
-
----
-
-## `/model-recommend` Usage
-
-```text
-/model-recommend <task> [options]
-```
-
-**Router Control:**
-- `--set-auto <off|suggest|enforce>`: Configure how the router intercepts prompts.
-- `--set-learning <on|off>`: Enable or disable real-time training.
-- `--status`: Display router health, training counts, and DB info.
-- `--reset-learning`: Wipe all learned weights and start over.
-
-**Taxonomy & Portability:**
-- `--export-taxonomy <path>`: Export current taxonomy to a JSON file.
-- `--import-taxonomy <path>`: Replace the database taxonomy with a JSON file.
-- `--merge-taxonomy <path>`: Merge a JSON taxonomy into the database.
-- `--merge-policy <append|replace|keep>`: Collision policy (default: `append`).
-- `--rebuild-taxonomy`: Clean reset to defaults followed by live enrichment.
-
-**Recommendation Logic:**
-- `--strategy <cheapest-capable|capability-first|local-first>`: Choose ranking bias.
-- `--explain`: See a detailed breakdown of how each model was scored.
-- `--limit <n>`: Show top $n$ models (includes `near-miss` models marked with `*`).
-
----
-
-## Online Learning & Auto-Routing
-
-THE router implements a **"Train as you go"** strategy:
-1. **Analyze**: It identifies task requirements (StageA constraints).
-2. **Suggest**: It recommends the best model.
-3. **Learn**: When you pick a model, it logs a "win" for that model's features in that context.
-4. **Enforce**: Once it has enough samples, in `enforce` mode, it will auto-pick models when the score margin is high enough.
-
----
-
-## Security & Hygiene
-
-- **Privacy**: All training data, weights, and taxonomy samples are stored **locally** in `agent/model-recommend.db`. No data is sent to external routing services.
-- **API Keys**: Stored in `agent/auth.json`. Never commit this file.
-- **Estimated Prices**: Prices marked with `~` are estimates based on cross-provider matching.

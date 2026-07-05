@@ -39,17 +39,24 @@ Ranks all authenticated models for the given task description.
 
 | Flag | Description |
 |------|-------------|
-| `--strategy <cheapest-capable\|capability-first\|local-first>` | Ranking strategy |
-| `--provider <name[,name]>` | Filter by provider |
-| `--sort-by <field> [asc\|desc]` | Sort output column |
-| `--limit <n>` | Number of results (default 10) |
-| `--explain` | Show per-model score breakdown |
-| `--set-auto <off\|suggest\|enforce>` | Configure auto-routing mode |
-| `--set-learning <on\|off>` | Enable/disable online learning |
-| `--reset-learning` | Clear all learned weights and samples |
-| `--sync-benchmarks` | Fetch & store Aider leaderboard pass rates |
+| `--strategy <cheapest-capable|capability-first|local-first>` | Ranking strategy |
+| `--provider, -p <name[,name]>` | Filter by provider (csv) |
+| `--grep, -g <text>` | Filter models by substring |
+| `--sort-by <field> [asc\|desc]` | Sort output column (score, intelligence, reasoning, reliability, speed, price, context) |
+| `--limit, -n <n>` | Number of results (default 10) |
+| `--explain` | Show per-model score breakdown and relaxation logic |
+| `--set-auto <off\|suggest\|enforce>` | Configure auto-routing mode via `before_agent_start` hook |
+| `--set-learning <on\|off>` | Enable/disable online learning from pairwise selections |
+| `--reset-learning` | Clear all learned weights and historical samples |
+| `--sync-benchmarks` | Fetch & store Aider leaderboard pass rates for empirical scoring |
+| `--status` | Print router state, database stsats, and training sample counts |
 | `--rebuild-taxonomy` | Reset task-intent taxonomy to defaults |
-
+| `--export-taxonomy <path>` | Export current taxonomy to a JSON file |
+| `--import-taxonomy <path>` | Replace the database taxonomy with a JSON file |
+| `--merge-taxonomy <path>` | Merge a JSON taxonomy into the database |
+| `--merge-policy <append\|replace\|keep>` | Collision policy for merging taxonomies (default: append) |
+| `--local-prefer` | Boost score of local models |
+| `--local-only` | Strictly filter output to local models only |
 ---
 
 ### `/active-models`
@@ -59,8 +66,20 @@ Lists all models available from your authenticated providers.
 ```
 /active-models
 /active-models -g claude --sort-by efficiency
-/active-models --sort-by price asc
+/active-models --min-intel 90 --sort-by price
+/active-models -p github-copilot,anthropic -n 20
 ```
+
+**Key flags**
+
+| Flag | Description |
+|------|-------------|
+| `--grep, -g <q>` | Search providers/models |
+| `--provider, -p <ids>` | Allowlist providers (csv) |
+| `--min-intel <n>` | Minimum Intelligence score (0-100) |
+| `--max-price <n>` | Maximum cost per 1M output tokens |
+| `--sort-by <field> [asc\|desc]` | Sort by: score, intel, price, context, efficiency |
+| `--limit, -n <n>` | Maximum results to return (default: 10) |
 
 ---
 
