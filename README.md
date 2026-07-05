@@ -35,15 +35,16 @@ Keep Pi lightweight, but add:
 ## Extensions
 
 ### `/active-models`
-**File**: `agent/extensions/active-models.ts`
+**Package**: `agent/extensions/model-recommend/`
 Provides a comprehensive view of all available models from your authenticated providers (found in `agent/auth.json`).
 - **Capability Profiles**: Shows intelligence, reasoning, speed, price, and context window.
 - **Triage**: Sort and filter models to find exactly what you need for a specific task.
 - **Price Estimation**: Estimates costs for providers like GitHub Copilot that don't expose them directly.
 
 ### `/model-recommend`
-**File**: `agent/extensions/model-recommend.ts`
-A sophisticated, "trained" model router that optimizes model choice based on task complexity and user preference.
+**Package**: `agent/extensions/model-recommend/`
+A sophisticated, modular "trained" model router that optimizes model choice based on task complexity and user preference.
+- **Modular Design**: Broken down into specific files for intent analysis, profiling, scoring, benchmarks, and SQLite learning.
 - **Local Learning**: Trains a pairwise preference model in real-time based on which models you pick.
 - **Auto-Routing**: Can suggest or automatically switch models per-prompt via the `before_agent_start` hook.
 - **Taxonomy Driven**: Uses a concept-based taxonomy (stored in SQLite) to analyze task intent and complexity.
@@ -86,8 +87,8 @@ The setup leverages several MCP servers (configured in `agent/mcp.json`) to exte
 ### `agent/mcp.json`
 Central configuration for all MCP servers. Defines commands, arguments, and environment variables for external tools.
 
-### `agent/extensions/model-profile.ts`
-A shared library that builds the unified capability profiles used by both `/active-models` and `/model-recommend`.
+### `agent/extensions/model-recommend/profiles.ts`
+A shared library inside the router package that builds the unified capability profiles used by both `/active-models` and `/model-recommend`.
 
 ### `agent/model-recommend.db` (SQLite)
 The operational database for the router. It stores:
