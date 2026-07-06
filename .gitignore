@@ -18,3 +18,4 @@ agent/model-recommend.db
 context-mode/
 .pi-subagents/
 agent/run-history.jsonl
+agent-local/sessions/
