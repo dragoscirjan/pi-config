@@ -16,3 +16,5 @@ agent/git/
 .memory.db
 agent/model-recommend.db
 context-mode/
+.pi-subagents/
+agent/run-history.jsonl

@@ -1,0 +1,57 @@
+---
+name: coding
+description: Dynamic coding guidelines based on detected language.
+---
+{% set lang = context.last_detected_language | default("unknown") %}
+
+# Coding Guidelines
+
+## Generic Rules
+
+- Write readable, predictable, maintainable code with clear intent at every level.
+- Use meaningful names, short focused functions, guard clauses, and comments only for “why,” not “what.”
+- Prefer the simplest correct solution; avoid duplication, premature abstraction, and unnecessary features.
+- Validate early, fail fast, and leave touched code cleaner than before.
+- Keep modules/classes focused, interfaces small, and behavior substitutable.
+- Favor composition, dependency injection, immutability, and abstractions where they improve testability or flexibility.
+- Use design patterns only when they genuinely simplify the code.
+
+## Error Handling
+
+- Handle errors properly — no swallowed exceptions
+- Use typed/specific errors over generic ones
+- Provide meaningful error messages with context
+- Clean up resources in error paths (finally, defer, using, etc.)
+
+{% if lang != "unknown" %}
+## Specific {{ lang | capitalize }} Rules
+
+{% endif %}{% if lang == "javascript" or lang == "jsx" %}
+
+- **Style:** [Google JS Style Guide](https://google.github.io/styleguide/jsguide.html).
+- **Tooling:** `Prettier`, `ESLint`, `Vitest`/`Jest`.
+- **Modern JS:** ESM only (`import`/`export`). Node 22+.
+- **Idioms:** `const` by default, `let` if mutating. Never use `var`. Prefer arrow functions, destructuring, and spread operators.
+- **Async:** Use `async`/`await` over raw Promises. 
+- **Docs:** JSDoc for public APIs and complex logic.
+
+{% elseif lang == "python" %}
+
+- **Style:** [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html) ([PEP 8](https://peps.python.org/pep-0008/) compliant).
+- **Tooling:** `ruff` (formatting & linting), `mypy` (typing), `pytest` (testing), `uv` for deps.
+- **Typing:** Type hints are mandatory (`def func(a: int) -> str:`).
+- **Idioms:** Prefer list/dict comprehensions over `map`/`filter`. Use generators (`yield`) for large sequences.
+- **Errors:** Explicit exception handling. Use `raise ... from err`. Never use bare `except:`.
+- **Concurrency:** Use `asyncio` and `TaskGroup` for structured concurrency in I/O tasks.
+
+{% elseif lang == "typescript" or lang == "tsx" %}
+
+- **Style:** [Google TS Style Guide](https://google.github.io/styleguide/tsguide.html).
+- **Tooling:** `Prettier`, `typescript-eslint`, `Vitest`/`Jest`.
+- **Config:** Strict mode (`"strict": true`).
+- **Typing:** Avoid `any` at all costs; use `unknown` if necessary. Explicit return types on public functions.
+- **Idioms:** Use discriminated unions for modeling state. Prefer `interface` for object shapes, `type` for unions/primitives.
+
+{% else %}
+
+{% endif %}

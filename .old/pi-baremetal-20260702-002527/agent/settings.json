@@ -1,9 +1,0 @@
-{
-  "lastChangelogVersion": "0.73.1",
-  "defaultProvider": "openrouter",
-  "defaultModel": "openai/gpt-5.3-codex",
-  "defaultThinkingLevel": "high",
-  "packages": [
-    "npm:pi-mcp-adapter"
-  ]
-}

@@ -2,14 +2,16 @@
   "extensions": [
     "./extensions/context-mode",
     "./extensions/model-recommend",
+    "./extensions/pi-coder",
     "./extensions/pi-twig",
     "./extensions/pi-issue-tracking"
   ],
-  "defaultProvider": "github-copilot",
-  "defaultModel": "gemini-3-flash-preview",
+  "defaultProvider": "openrouter",
+  "defaultModel": "z-ai/glm-5",
   "lastChangelogVersion": "0.73.1",
   "packages": [
     "git:github.com/nicobailon/pi-mcp-adapter",
     "npm:pi-subagents"
-  ]
+  ],
+  "defaultThinkingLevel": "medium"
 }
