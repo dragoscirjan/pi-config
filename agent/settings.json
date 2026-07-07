@@ -1,17 +1,13 @@
 {
-  "extensions": [
-    "./extensions/context-mode",
-    "./extensions/model-recommend",
-    "./extensions/pi-coder",
-    "./extensions/pi-twig",
-    "./extensions/pi-issue-tracking"
-  ],
-  "defaultProvider": "openrouter",
-  "defaultModel": "z-ai/glm-5",
-  "lastChangelogVersion": "0.73.1",
+  "lastChangelogVersion": "0.80.3",
   "packages": [
-    "git:github.com/nicobailon/pi-mcp-adapter",
-    "npm:pi-subagents"
+    "npm:pi-subagents",
+    "npm:pi-mcp-adapter"
   ],
-  "defaultThinkingLevel": "medium"
+  "extensions": [
+    "/home/dragosc/.pi/agent-local/extensions/pi-local-models/index.ts"
+  ],
+  "defaultProvider": "lmstudio",
+  "defaultModel": "qwen/qwen3-coder-30b",
+  "theme": "dark"
 }

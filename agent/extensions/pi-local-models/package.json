@@ -1,0 +1,20 @@
+{
+  "name": "pi-local-models",
+  "version": "1.0.0",
+  "description": "Pi extension: auto-discovers local model backends (LM Studio, Ollama, llama.cpp, MLX) and registers them as Pi providers with rich settings via rule-based tagging.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.73.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3"
+  }
+}

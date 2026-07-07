@@ -1,5 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const EXTENSION_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SKILLS_DIR = path.join(EXTENSION_DIR, "skills");
 
 const LANGUAGE_EXTENSIONS: Record<string, string> = {
   ".js": "javascript",
@@ -89,6 +94,12 @@ export default function piCoderExtension(pi: ExtensionAPI) {
     name: "detect_language",
     label: "Language Detector",
     description: "Detect programming language based on file extension and update session context for dynamic skill loading.",
+    promptGuidelines: [
+      "MANDATORY — no exceptions: you MUST NOT call `write` or `edit` on any code file until, in the SAME turn, you have (1) called `detect_language` with that file's path, then (2) read the `coding` skill (its content depends on step 1 having run first).",
+      "This is a hard gate, not a suggestion: writing/editing code first and calling `detect_language` afterward as a correction does NOT satisfy this rule — the guidelines must inform the code, not follow it.",
+      "If you realize mid-task that you skipped this, STOP. Do not just call the tool retroactively and move on — explicitly discard/redo the write using the now-loaded guidelines.",
+      "This applies per file, every time, even if you already did it earlier in the session for a different file."
+    ],
     parameters: DetectLanguageParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx): Promise<{
@@ -125,4 +136,13 @@ export default function piCoderExtension(pi: ExtensionAPI) {
   // Reconstruct state on session events
   pi.on("session_start", async (_event, ctx) => reconstructState(ctx));
   pi.on("session_tree", async (_event, ctx) => reconstructState(ctx));
+
+  // Contribute our co-located skills/ folder (currently: coding/) so Pi's
+  // built-in skill discovery finds it without relying on any global skills
+  // directory. The `coding` skill's SKILL.md is a static placeholder;
+  // pi-twig intercepts the `read` call and renders SKILL.md.twig in its place,
+  // using the detected-language session state this extension maintains above.
+  pi.on("resources_discover", (_event, _ctx) => ({
+    skillPaths: [SKILLS_DIR]
+  }));
 }

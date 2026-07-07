@@ -1,9 +1,0 @@
-{
-  "lastChangelogVersion": "0.73.1",
-  "packages": [
-    "npm:pi-lmstudio",
-    "npm:pi-subagents"
-  ],
-  "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4.7"
-}

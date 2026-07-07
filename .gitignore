@@ -7,15 +7,15 @@ agent/mcp-cache.json
 agent/mcp-npx-cache.json
 agent/mcp-oauth/
 agent/mcp-onboarding.json
-agent/git/
+agent/model-recommend.db
+agent/run-history.jsonl
 
 # Local data caches
 .web_stash.db
 .memory.jsonl
 .memory.json
 .memory.db
-agent/model-recommend.db
-context-mode/
 .pi-subagents/
-agent/run-history.jsonl
-agent-local/sessions/
+.env.ai
+.ai.tmp/
+context-mode/
