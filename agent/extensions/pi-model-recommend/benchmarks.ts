@@ -12,20 +12,6 @@ export async function syncBenchmarks(): Promise<number> {
 
     const db = getRouterDb();
     
-    // Create table using raw sqlite
-    try {
-        db.exec(`
-            CREATE TABLE IF NOT EXISTS model_benchmarks (
-                model TEXT PRIMARY KEY,
-                pass_rate_edit REAL,
-                pass_rate_refactor REAL,
-                updated_at INTEGER
-            );
-        `);
-    } catch (e) {
-        console.error("Failed to create model_benchmarks table:", e);
-    }
-    
     let editCount = 0;
     try {
         const res = await fetch(editUrl);
