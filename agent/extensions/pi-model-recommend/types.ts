@@ -77,7 +77,7 @@ export type Intent = {
 		designLikelihood: number;
 		bestQualityBias: number;
 	};
-    previousTurnFailed?: boolean;
+	previousTurnFailed?: boolean;
 };
 
 export type RecommendOptions = {
@@ -104,7 +104,24 @@ export type RecommendOptions = {
 	importTaxonomyPath?: string;
 	mergeTaxonomyPath?: string;
 	mergePolicy: "append" | "replace" | "keep";
-    failover?: boolean;
+	syncBenchmarks?: boolean;
+	failover?: boolean;
+};
+
+export type TaxonomyState = {
+	taxonomy: Taxonomy;
+	rebuilt: boolean;
+	enriched: boolean;
+	liveSources: string[];
+};
+
+export type CapabilityConstraints = {
+	minIntel: number;
+	minReasoning: number;
+	minToolReliability: number;
+	minContext: number;
+	requireReasoning: boolean;
+	maxAffordablePrice: number;
 };
 
 export type ScoreBreakdown = {
@@ -120,7 +137,39 @@ export type ScoreBreakdown = {
 	reasons: string[];
 };
 
-export type ScoredModel = ModelProfile & {
+export type ScoredModel = {
+	provider: string;
+	model: string;
+	score: number;
+	intelligence: number;
+	reasoning: number;
+	toolReliability: number;
+	speed: number;
+	inputPrice: number;
+	outputPrice: number;
+	effectivePrice: number;
+	priceEstimated: boolean;
+	contextWindow: number;
+	supportsImages: boolean;
+	isLocal: boolean;
+	breakdown: ScoreBreakdown;
+};
+
+export type StageAResult = {
+	feasible: ScoredModel[];
+	constraints: CapabilityConstraints;
+	relaxLevel: number;
+};
+
+export type RecommendationResult = {
+	top: ScoredModel[];
+	scored: ScoredModel[];
+	stageA: StageAResult;
+	intent: Intent;
+	taxState: TaxonomyState;
+};
+
+export type ScoredModelLegacy = ModelProfile & {
 	score: number;
 	breakdown: ScoreBreakdown;
 };

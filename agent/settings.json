@@ -4,9 +4,6 @@
     "npm:pi-subagents",
     "npm:pi-mcp-adapter"
   ],
-  "extensions": [
-    "/home/dragosc/.pi/agent-local/extensions/pi-local-models/index.ts"
-  ],
   "defaultProvider": "lmstudio",
   "defaultModel": "qwen/qwen3-coder-30b",
   "theme": "dark"

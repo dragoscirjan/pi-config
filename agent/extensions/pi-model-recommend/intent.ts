@@ -2,28 +2,72 @@ import { clamp } from "./profiles";
 import { LANGUAGE_HINTS } from "./taxonomy";
 import type { Taxonomy, RecommendConfig, Intent } from "./types";
 
-function normalizeText(text: string): string {
-	return text.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+export function normalizeText(raw: string): string {
+	return raw
+		.toLowerCase()
+		.replace(/[_/]+/g, " ")
+		.replace(/[^a-z0-9#+\.\-\s]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
 }
 
-function applyAliases(text: string, aliases: Record<string, string[]>): string {
-	let out = text;
-	for (const [canonical, syns] of Object.entries(aliases)) {
-		for (const s of syns) {
-			const regex = new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
-			out = out.replace(regex, canonical);
+export function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function levenshteinDistance(a: string, b: string, maxDistance = 2): number {
+	if (a === b) return 0;
+	if (Math.abs(a.length - b.length) > maxDistance) return maxDistance + 1;
+	const prev = new Array(b.length + 1);
+	const curr = new Array(b.length + 1);
+	for (let j = 0; j <= b.length; j++) prev[j] = j;
+	for (let i = 1; i <= a.length; i++) {
+		curr[0] = i;
+		let rowMin = curr[0];
+		for (let j = 1; j <= b.length; j++) {
+			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+			curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+			if (curr[j] < rowMin) rowMin = curr[j];
 		}
+		if (rowMin > maxDistance) return maxDistance + 1;
+		for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
 	}
-	return out;
+	return prev[b.length];
 }
 
-function containsTerm(text: string, tokens: string[], term: string): boolean {
-	if (term.includes(" ")) return text.includes(term.toLowerCase());
-	return tokens.includes(term.toLowerCase());
+export function containsTerm(text: string, tokens: string[], term: string): boolean {
+	const t = normalizeText(term);
+	if (!t) return false;
+	if (t.includes(" ")) {
+		const re = new RegExp(`(^|\\s)${escapeRegExp(t)}($|\\s)`);
+		if (re.test(text)) return true;
+	}
+	const isShort = t.length <= 3;
+	if (tokens.includes(t)) return true;
+	if (isShort) return false;
+
+	for (const token of tokens) {
+		if (token.length < 4) continue;
+		const maxDist = token.length >= 8 ? 2 : 1;
+		if (levenshteinDistance(token, t, maxDist) <= maxDist) return true;
+	}
+	return false;
 }
 
-function hasAny(text: string, tokens: string[], terms: string[]): boolean {
-	return terms.some(t => containsTerm(text, tokens, t));
+export function hasAny(text: string, tokens: string[], words: string[]): boolean {
+	return words.some((w) => containsTerm(text, tokens, w));
+}
+
+export function applyAliases(text: string, aliases: Record<string, string[]>): string {
+	let out = ` ${normalizeText(text)} `;
+	for (const [raw, replacements] of Object.entries(aliases)) {
+		const source = normalizeText(raw);
+		if (!source) continue;
+		const re = new RegExp(`(^|\\s)${escapeRegExp(source)}(?=\\s|$)`, "g");
+		if (!re.test(out)) continue;
+		out = out.replace(re, `$1${normalizeText(replacements[0] ?? source)}`);
+	}
+	return normalizeText(out);
 }
 
 export function analyzeIntent(task: string, taxonomy: Taxonomy, config: RecommendConfig): Intent {
@@ -73,23 +117,43 @@ export function analyzeIntent(task: string, taxonomy: Taxonomy, config: Recommen
 	const bestBias = hasAny(text, tokens, ["best", "top", "highest quality", "state of the art", "most capable", "most intelligent"]) ? 1 : 0.2;
 	const safetyBias = hasAny(text, tokens, ["safety", "critical", "secure", "compliance", "mission", "threat", "hazard"]) ? 1 : 0.15;
 
+	const capabilityNeeds = {
+		reasoningDepth: clamp((0.12 + taxonomySignal * 0.42 + structureSignal * 0.45 + architectureSignal * 0.28 + securitySignal * 0.26) * spread, 0, 1),
+		systemBreadth: clamp((0.08 + structureSignal * 0.62 + cloudSignal * 0.28 + architectureSignal * 0.24) * spread, 0, 1),
+		correctnessRisk: clamp((0.1 + securitySignal * 0.42 + safetyBias * 0.5 + architectureSignal * 0.22) * spread, 0, 1),
+		contextVolume: clamp((0.08 + structureSignal * 0.45 + cloudSignal * 0.3 + architectureSignal * 0.25 + (hasAny(text, tokens, ["large", "huge", "many", "massive", "multi", "scale", "millions"]) ? 0.3 : 0)) * spread, 0, 1),
+		safetyCriticality: clamp((0.06 + securitySignal * 0.42 + safetyBias * 0.55) * spread, 0, 1),
+		latencySensitivity,
+		costSensitivity,
+		codingLikelihood: clamp((0.15 + (languages.size > 0 ? 0.55 : 0) + algoSignal * 0.35 + gameSignal * 0.2) * spread, 0, 1),
+		designLikelihood: clamp((0.12 + architectureSignal * 0.5 + cloudSignal * 0.24 + securitySignal * 0.24 + (hasAny(text, tokens, ["design", "architecture", "hld", "system"]) ? 0.25 : 0)) * spread, 0, 1),
+		bestQualityBias: bestBias,
+	};
+
+	const complexity = clamp(
+		Math.round(
+			8 +
+				capabilityNeeds.reasoningDepth * 30 +
+				capabilityNeeds.systemBreadth * 20 +
+				capabilityNeeds.correctnessRisk * 22 +
+				capabilityNeeds.contextVolume * 18 +
+				capabilityNeeds.safetyCriticality * 12,
+		),
+		1,
+		100,
+	);
+
+	const domains = new Set<string>();
+	if (capabilityNeeds.codingLikelihood >= 0.35) domains.add("coding");
+	if (capabilityNeeds.reasoningDepth >= 0.45) domains.add("reasoning");
+	if (gameSignal > 0) domains.add("creative");
+
 	return {
-		complexity: clamp(taxonomySignal * 45 + structureSignal * 55, 0, 100),
-		domains: matchedTaxonomyCategories,
+		complexity,
+		domains,
 		matchedTaxonomyCategories,
 		matchedTaxonomyConcepts,
 		languages,
-		capabilityNeeds: {
-			reasoningDepth: clamp((0.12 + taxonomySignal * 0.42 + structureSignal * 0.45 + architectureSignal * 0.28 + securitySignal * 0.26) * spread, 0, 1),
-			systemBreadth: clamp((0.08 + structureSignal * 0.62 + cloudSignal * 0.28 + architectureSignal * 0.24) * spread, 0, 1),
-			correctnessRisk: clamp((0.15 + algoSignal * 0.45 + securitySignal * 0.38 + safetyBias * 0.35) * spread, 0, 1),
-			contextVolume: clamp((0.05 + structureSignal * 0.55 + cloudSignal * 0.22) * spread, 0, 1),
-			safetyCriticality: safetyBias,
-			latencySensitivity,
-			costSensitivity,
-			codingLikelihood: clamp((languages.size > 0 ? 0.85 : 0.1) + algoSignal * 0.3, 0, 1),
-			designLikelihood: architectureSignal,
-			bestQualityBias: bestBias
-		}
+		capabilityNeeds,
 	};
 }
