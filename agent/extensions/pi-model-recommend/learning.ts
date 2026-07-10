@@ -40,12 +40,22 @@ export function getRouterDb(): DatabaseSync {
     return db;
 }
 
-function exactKey(m: ScoredModel): string { return `${m.provider}/${m.model}`.toLowerCase(); }
-function familyKey(m: string | ScoredModel): string {
+/**
+ * Canonical key generation for model identification.
+ * Uses `::` separator and strips trailing tags (e.g., :latest, :instruct).
+ */
+export function exactKey(m: { provider: string; model: string }): string {
+    return `${m.provider.toLowerCase()}::${m.model.toLowerCase().replace(/:[a-z0-9_-]+$/g, "")}`;
+}
+
+export function familyKey(m: string | { model: string }): string {
     const id = typeof m === "string" ? m : m.model;
     return id.toLowerCase().replace(/-(mini|small|large|pro|turbo|preview|latest|instruct|vision|0\d\d\d)$/, "");
 }
-function providerFamilyKey(m: ScoredModel): string { return `${m.provider}:${familyKey(m)}`.toLowerCase(); }
+
+export function providerFamilyKey(m: { provider: string; model: string }): string {
+    return `${m.provider.toLowerCase()}::${familyKey(m)}`;
+}
 
 export function getWeight(type: string, key: string): number {
     try {

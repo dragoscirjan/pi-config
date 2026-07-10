@@ -1,4 +1,5 @@
 import { syncBenchmarks, getAllBenchmarks, findBenchmarkForModel } from "./benchmarks";
+import { exactKey } from "./learning";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -1260,6 +1261,18 @@ const ROUTER_MIGRATIONS: RouterMigration[] = [
 			`);
 		},
 	},
+	{
+		version: 4,
+		name: "normalize-exact-keys",
+		up: (db) => {
+			// Migrate keys from old format (provider/model) to canonical format (provider::model)
+			db.exec(`
+				UPDATE router_weights 
+				SET key = REPLACE(key, '/', '::')
+				WHERE scope = 'exact' AND key LIKE '%/%';
+			`);
+		},
+	},
 ];
 
 function getRouterDbPath(): string {
@@ -1369,10 +1382,6 @@ function canonicalFamily(modelId: string): string {
 	v = v.replace(/[-_]?v\d+(?:\.\d+)?$/g, "");
 	v = v.replace(/\s+/g, "-");
 	return v;
-}
-
-function exactKey(model: { provider: string; model: string }): string {
-	return `${model.provider.toLowerCase()}::${model.model.toLowerCase().replace(/:[a-z0-9_-]+$/g, "")}`;
 }
 
 function familyKey(model: { model: string }): string {
