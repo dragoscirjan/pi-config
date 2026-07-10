@@ -1,6 +1,6 @@
-import type { DiscoverModels, NormalizedModel, ServerEntry } from "../types.js";
-import { resolveHeaders } from "../config.js";
-import { logWarn } from "../log.js";
+import { resolveHeaders } from '../config.js';
+import { logWarn } from '../log.js';
+import type { DiscoverModels, NormalizedModel, ServerEntry } from '../types.js';
 
 interface OllamaTagsResponse {
   models?: Array<{
@@ -28,12 +28,12 @@ function extractContextLength(show: OllamaShowResponse): number | undefined {
   const family = show.details?.family;
   if (family) {
     const keyed = info[`${family}.context_length`];
-    if (typeof keyed === "number") return keyed;
+    if (typeof keyed === 'number') return keyed;
   }
 
   // Fallback: scan for any "*.context_length" key.
   for (const [key, value] of Object.entries(info)) {
-    if (key.endsWith(".context_length") && typeof value === "number") {
+    if (key.endsWith('.context_length') && typeof value === 'number') {
       return value;
     }
   }
@@ -74,9 +74,9 @@ export const discoverOllamaModels: DiscoverModels = async (server: ServerEntry):
         const timeoutId = setTimeout(() => controller.abort(), 5000);
         try {
           const response = await fetch(`${server.url}/api/show`, {
-            method: "POST",
+            method: 'POST',
             signal: controller.signal,
-            headers: { ...headers, "Content-Type": "application/json" },
+            headers: { ...headers, 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: entry.name }),
           });
           if (response.ok) {
@@ -100,5 +100,7 @@ export const discoverOllamaModels: DiscoverModels = async (server: ServerEntry):
     }),
   );
 
-  return results.filter((r): r is PromiseFulfilledResult<NormalizedModel> => r.status === "fulfilled").map((r) => r.value);
+  return results
+    .filter((r): r is PromiseFulfilledResult<NormalizedModel> => r.status === 'fulfilled')
+    .map((r) => r.value);
 };

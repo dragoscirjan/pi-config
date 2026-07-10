@@ -1,0 +1,5 @@
+#! /usr/bin/env bash
+
+for cmd in dupcheck test; do
+  npm run $cmd;
+done

@@ -1,7 +1,7 @@
-import type { ProviderModelConfig } from "@mariozechner/pi-coding-agent";
+import type { ProviderModelConfig } from '@mariozechner/pi-coding-agent';
 
 /** Local model backends supported by this extension. */
-export type BackendName = "lmstudio" | "ollama" | "llamacpp" | "mlx";
+export type BackendName = 'lmstudio' | 'ollama' | 'llamacpp' | 'mlx';
 
 /** A single server entry for a backend, as configured in `~/.pi/agent/local-models.json`. */
 export interface ServerEntry {
@@ -26,7 +26,7 @@ export interface BackendConfig {
 export interface Rule {
   /** Regex pattern or literal string, interpreted per `type`. */
   match: string;
-  type: "regex" | "string";
+  type: 'regex' | 'string';
   options: {
     contextWindow?: number;
     maxTokens?: number;

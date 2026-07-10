@@ -1,8 +1,8 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import type { LocalModelsConfig } from "./types.js";
-import { logWarn } from "./log.js";
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { logWarn } from './log.js';
+import type { LocalModelsConfig } from './types.js';
 
 const EMPTY_CONFIG: LocalModelsConfig = { backends: {} };
 
@@ -15,8 +15,8 @@ const EMPTY_CONFIG: LocalModelsConfig = { backends: {} };
  * profiles silently loaded zero backends).
  */
 function getConfigPath(): string {
-  const baseDir = process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent");
-  return path.join(baseDir, "local-models.json");
+  const baseDir = process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), '.pi', 'agent');
+  return path.join(baseDir, 'local-models.json');
 }
 
 /**
@@ -30,7 +30,7 @@ export function loadConfig(): LocalModelsConfig {
   const configPath = getConfigPath();
   try {
     if (fs.existsSync(configPath)) {
-      const raw = fs.readFileSync(configPath, "utf-8");
+      const raw = fs.readFileSync(configPath, 'utf-8');
       const parsed = JSON.parse(raw);
       return {
         backends: parsed.backends ?? {},
@@ -49,12 +49,12 @@ export function loadConfig(): LocalModelsConfig {
  * unresolved (returned as-is), matching Pi's own documented behavior.
  */
 export function resolveValue(value: string): string {
-  if (value === "$$") return "$";
-  if (value.startsWith("${") && value.endsWith("}")) {
+  if (value === '$$') return '$';
+  if (value.startsWith('${') && value.endsWith('}')) {
     const envKey = value.slice(2, -1);
     return process.env[envKey] ?? value;
   }
-  if (value.startsWith("$") && !value.startsWith("$$")) {
+  if (value.startsWith('$') && !value.startsWith('$$')) {
     const envKey = value.slice(1);
     return process.env[envKey] ?? value;
   }
@@ -73,7 +73,7 @@ export function resolveHeaders(headers: string[] | undefined): Record<string, st
   if (!headers) return result;
 
   for (const line of headers) {
-    const colonIndex = line.indexOf(":");
+    const colonIndex = line.indexOf(':');
     if (colonIndex === -1) {
       logWarn(`malformed header entry (missing ':'), skipping: ${line}`);
       continue;

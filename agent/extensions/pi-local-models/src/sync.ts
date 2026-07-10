@@ -1,11 +1,11 @@
-import type { ExtensionAPI, ProviderConfig } from "@mariozechner/pi-coding-agent";
-import { loadConfig, resolveHeaders } from "./config.js";
-import { applyRules } from "./rules.js";
-import { discoverLMStudioModels } from "./backends/lmstudio.js";
-import { discoverOllamaModels } from "./backends/ollama.js";
-import { discoverLlamaCppModels } from "./backends/llamacpp.js";
-import { discoverMlxModels } from "./backends/mlx.js";
-import type { BackendConfig, BackendName, DiscoverModels, ServerEntry } from "./types.js";
+import type { ExtensionAPI, ProviderConfig } from '@mariozechner/pi-coding-agent';
+import { discoverLlamaCppModels } from './backends/llamacpp.js';
+import { discoverLMStudioModels } from './backends/lmstudio.js';
+import { discoverMlxModels } from './backends/mlx.js';
+import { discoverOllamaModels } from './backends/ollama.js';
+import { loadConfig, resolveHeaders } from './config.js';
+import { applyRules } from './rules.js';
+import type { BackendConfig, BackendName, DiscoverModels, ServerEntry } from './types.js';
 
 /** Maps each supported backend to its discovery function. */
 const DISCOVER_BY_BACKEND: Record<BackendName, DiscoverModels> = {
@@ -24,7 +24,7 @@ const DISCOVER_BY_BACKEND: Record<BackendName, DiscoverModels> = {
  */
 function providerNameFor(backend: BackendName, server: ServerEntry, totalServers: number): string {
   if (totalServers === 1 && !server.name) return backend;
-  return `${backend}/${server.name ?? "default"}`;
+  return `${backend}/${server.name ?? 'default'}`;
 }
 
 /**
@@ -89,7 +89,7 @@ export function createSyncProviders(pi: ExtensionAPI): SyncProviders {
     const nowServerByProvider = new Map<string, { backend: BackendName; server: ServerEntry }>();
 
     for (const result of results) {
-      if (result.status !== "fulfilled") continue;
+      if (result.status !== 'fulfilled') continue;
       const { backend, providerName, server, models } = result.value;
       if (models.length === 0) continue;
 
@@ -98,7 +98,7 @@ export function createSyncProviders(pi: ExtensionAPI): SyncProviders {
 
       const providerConfig: ProviderConfig = {
         baseUrl: `${server.url}/v1/`,
-        api: "openai-completions",
+        api: 'openai-completions',
         models: providerModels,
         // Local servers generally don't require real auth; the backend name
         // is used as a stable placeholder API key. Real auth (if any) is

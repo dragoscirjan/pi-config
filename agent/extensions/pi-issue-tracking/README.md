@@ -21,6 +21,7 @@ A robust, filesystem-based issue tracking extension for the `pi` coding agent. T
 The Pi Issue Tracking extension replaces legacy manual workflows with an automated, schema-driven system. It stores issues as Markdown files in a local `.issues/` directory, making them easily searchable, version-controllable, and readable by both humans and agents.
 
 Key improvements over legacy systems:
+
 - **Automatic ID Assignment**: Generates zero-padded 5-digit IDs (e.g., `00001`).
 - **Contextual Templates**: Automatically populates files with headers specific to the issue type (Bug, Story, Task, etc.).
 - **Visual Hierarchy**: Uses standardized emoticons for quick identification.
@@ -30,20 +31,22 @@ Key improvements over legacy systems:
 
 The extension uses a specific hierarchy to organize project scope, each associated with a unique emoticon:
 
-| Icon | Type | Description |
-| :--- | :--- | :--- |
-| 🚀 | **Initiative** | High-level strategic goals or large project phases. |
-| 🏔️ | **Epic** | Large bodies of work that can be broken down into stories. |
-| 📖 | **Story** | User-centric requirements (As a... I want to... So that...). |
-| 🛠️ | **Task** | Technical implementation details and specific dev work. |
-| 🐛 | **Bug** | Defects or unexpected behaviors needing a fix. |
+| Icon | Type           | Description                                                  |
+| :--- | :------------- | :----------------------------------------------------------- |
+| 🚀   | **Initiative** | High-level strategic goals or large project phases.          |
+| 🏔️   | **Epic**       | Large bodies of work that can be broken down into stories.   |
+| 📖   | **Story**      | User-centric requirements (As a... I want to... So that...). |
+| 🛠️   | **Task**       | Technical implementation details and specific dev work.      |
+| 🐛   | **Bug**        | Defects or unexpected behaviors needing a fix.               |
 
 ## Tools
 
 ### issue_create
+
 Creates a new issue file with an auto-assigned ID and appropriate template.
 
 **Parameters:**
+
 - `type`: `initiative` | `epic` | `story` | `task` | `bug` (Required)
 - `title`: Short summary of the issue (Required)
 - `description`: Detailed context or user story.
@@ -55,22 +58,28 @@ Creates a new issue file with an auto-assigned ID and appropriate template.
 - `assignee`: Attribution for the owner.
 
 ### issue_list
+
 Lists issues from the `.issues/` directory with optional filtering.
 
 **Parameters:**
+
 - `status`: Filter by status.
 - `type`: Filter by issue type.
 
 ### issue_read
+
 Retrieves the full content of an issue.
 
 **Parameters:**
+
 - `id`: The 5-digit ID (e.g., `"00005"`).
 
 ### issue_comment
+
 Appends a structured status update to an existing issue.
 
 **Parameters:**
+
 - `id`: Target issue ID.
 - `update`: The core status update/description.
 - `artifacts`: Links to PRs, files, or logs.
@@ -99,9 +108,7 @@ To enable the extension, add it to your `~/.pi/agent/settings.json`:
 
 ```json
 {
-  "extensions": [
-    "./extensions/pi-issue-tracking"
-  ]
+  "extensions": ["./extensions/pi-issue-tracking"]
 }
 ```
 

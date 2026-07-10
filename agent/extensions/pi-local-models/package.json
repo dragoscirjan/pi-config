@@ -4,14 +4,20 @@
   "description": "Pi extension: auto-discovers local model backends (LM Studio, Ollama, llama.cpp, MLX) and registers them as Pi providers with rich settings via rule-based tagging.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "npx eslint \"./**/*.{ts,js,mjs,cjs}\"",
+    "lint:fix": "npm run lint -- --fix",
+    "format": "npx prettier --check \"./**/*.{ts,js,json,md,yml,yaml}\"",
+    "format:fix": "npx prettier --write \"./**/*.{ts,js,json,md,yml,yaml}\"",
+    "typecheck": "npx tsc --noEmit",
+    "test": "npx vitest run --passWithNoTests",
+    "test:watch": "npx vitest --passWithNoTests"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "type": "module",
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.73.1"
+    "@mariozechner/pi-coding-agent": "^0.27.4"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",

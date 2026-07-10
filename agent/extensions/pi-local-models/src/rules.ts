@@ -1,5 +1,5 @@
-import type { NormalizedModel, ProviderModelConfig, Rule } from "./types.js";
-import { logWarn } from "./log.js";
+import { logWarn } from './log.js';
+import type { NormalizedModel, ProviderModelConfig, Rule } from './types.js';
 
 /** Pi's own documented built-in defaults, used only because the installed
  * `ProviderModelConfig` TypeScript interface requires these fields to be
@@ -9,7 +9,7 @@ import { logWarn } from "./log.js";
 const PI_DEFAULT_CONTEXT_WINDOW = 128_000;
 const PI_DEFAULT_MAX_TOKENS = 16_384;
 const PI_DEFAULT_REASONING = false;
-const PI_DEFAULT_INPUT: ("text" | "image")[] = ["text"];
+const PI_DEFAULT_INPUT: ('text' | 'image')[] = ['text'];
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 /**
@@ -39,7 +39,7 @@ export function applyRules(model: NormalizedModel, rules: Rule[]): ProviderModel
     id: model.id,
     name: model.displayName,
     reasoning: reasoning ?? PI_DEFAULT_REASONING,
-    input: model.vision ? ["text", "image"] : PI_DEFAULT_INPUT,
+    input: model.vision ? ['text', 'image'] : PI_DEFAULT_INPUT,
     cost: ZERO_COST,
     contextWindow: contextWindow ?? PI_DEFAULT_CONTEXT_WINDOW,
     maxTokens: maxTokens ?? PI_DEFAULT_MAX_TOKENS,
@@ -47,10 +47,10 @@ export function applyRules(model: NormalizedModel, rules: Rule[]): ProviderModel
 }
 
 function ruleMatches(rule: Rule, model: NormalizedModel): boolean {
-  if (rule.type === "regex") {
+  if (rule.type === 'regex') {
     let re: RegExp;
     try {
-      re = new RegExp(rule.match, "i");
+      re = new RegExp(rule.match, 'i');
     } catch (error) {
       logWarn(`invalid regex rule '${rule.match}', skipping`, error);
       return false;

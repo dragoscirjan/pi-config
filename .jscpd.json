@@ -1,0 +1,18 @@
+{
+  "path": [
+    "agent/extensions"
+  ],
+  "pattern": "**/*.{ts,js}",
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/*.d.ts"
+  ],
+  "reporters": [
+    "console",
+    "html"
+  ],
+  "output": "tmp/jscpd",
+  "absolute": false
+}
