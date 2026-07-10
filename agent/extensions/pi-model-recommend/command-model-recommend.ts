@@ -1,8 +1,20 @@
 import { syncBenchmarks, getAllBenchmarks, findBenchmarkForModel } from "./benchmarks";
+import {
+	getRouterDb,
+	getRouterDbPath,
+	getRouterSchemaVersion,
+	dbGetNumber,
+	dbSetNumber,
+	readWeight,
+	addWeight,
+	exactKey,
+	familyKey,
+	providerFamilyKey,
+	canonicalFamily,
+} from "./learning";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { DatabaseSync } from "node:sqlite";
 import { getAgentDir, type ExtensionAPI, DynamicBorder } from "@mariozechner/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Input, Text, Key, matchesKey } from "@mariozechner/pi-tui";
 import { type ModelLike as RegistryModelLike, buildCostHintIndex, buildModelProfile } from "./model-profile";
@@ -1187,226 +1199,6 @@ function ensureRecommendConfig(): RecommendConfig {
 	}
 }
 
-let routerDb: DatabaseSync | undefined;
-
-const ROUTER_DB_SCHEMA_VERSION = 3;
-
-type RouterMigration = {
-	version: number;
-	name: string;
-	up: (db: DatabaseSync) => void;
-};
-
-const ROUTER_MIGRATIONS: RouterMigration[] = [
-	{
-		version: 1,
-		name: "initial-router-schema",
-		up: (db) => {
-			db.exec(`
-				CREATE TABLE IF NOT EXISTS router_settings (
-					key TEXT PRIMARY KEY,
-					value TEXT NOT NULL
-				);
-				CREATE TABLE IF NOT EXISTS router_weights (
-					scope TEXT NOT NULL,
-					key TEXT NOT NULL,
-					weight REAL NOT NULL DEFAULT 0,
-					updates INTEGER NOT NULL DEFAULT 0,
-					PRIMARY KEY(scope, key)
-				);
-				CREATE TABLE IF NOT EXISTS router_samples (
-					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					ts INTEGER NOT NULL,
-					mode TEXT NOT NULL,
-					prompt_hash TEXT NOT NULL,
-					selected_exact TEXT NOT NULL,
-					selected_provider_family TEXT NOT NULL,
-					selected_family TEXT NOT NULL,
-					candidate_count INTEGER NOT NULL,
-					margin REAL NOT NULL DEFAULT 0,
-					features_json TEXT NOT NULL
-				);
-			`);
-		},
-	},
-	{
-		version: 2,
-		name: "performance-indexes",
-		up: (db) => {
-			db.exec(`
-				CREATE INDEX IF NOT EXISTS idx_router_samples_ts ON router_samples(ts);
-				CREATE INDEX IF NOT EXISTS idx_router_samples_family ON router_samples(selected_family);
-				CREATE INDEX IF NOT EXISTS idx_router_weights_scope_key ON router_weights(scope, key);
-			`);
-		},
-	},
-	{
-		version: 3,
-		name: "taxonomy-tables",
-		up: (db) => {
-			db.exec(`
-				CREATE TABLE IF NOT EXISTS router_taxonomy_categories (
-					name TEXT PRIMARY KEY,
-					weight REAL NOT NULL
-				);
-				CREATE TABLE IF NOT EXISTS router_taxonomy_terms (
-					category_name TEXT NOT NULL,
-					concept_name TEXT NOT NULL,
-					term TEXT NOT NULL,
-					PRIMARY KEY(category_name, concept_name, term),
-					FOREIGN KEY(category_name) REFERENCES router_taxonomy_categories(name) ON DELETE CASCADE
-				);
-				CREATE INDEX IF NOT EXISTS idx_router_taxonomy_terms_category ON router_taxonomy_terms(category_name);
-			`);
-		},
-	},
-];
-
-function getRouterDbPath(): string {
-	return join(getAgentDir(), "model-recommend.db");
-}
-
-function ensureRouterMigrationsTable(db: DatabaseSync): void {
-	db.exec(`
-		CREATE TABLE IF NOT EXISTS router_migrations (
-			version INTEGER PRIMARY KEY,
-			name TEXT NOT NULL,
-			applied_at INTEGER NOT NULL
-		);
-	`);
-}
-
-function getAppliedRouterSchemaVersion(db: DatabaseSync): number {
-	const row = db.prepare("SELECT MAX(version) AS v FROM router_migrations").get() as { v?: number } | undefined;
-	return Number(row?.v ?? 0);
-}
-
-function applyRouterMigrations(db: DatabaseSync): void {
-	ensureRouterMigrationsTable(db);
-	let current = getAppliedRouterSchemaVersion(db);
-	const pending = ROUTER_MIGRATIONS.filter((m) => m.version > current).sort((a, b) => a.version - b.version);
-	if (pending.length === 0) return;
-	db.exec("BEGIN IMMEDIATE");
-	try {
-		for (const migration of pending) {
-			migration.up(db);
-			db.prepare("INSERT INTO router_migrations(version, name, applied_at) VALUES(?, ?, ?)").run(migration.version, migration.name, Date.now());
-			current = migration.version;
-		}
-		db.exec("COMMIT");
-	} catch (error) {
-		db.exec("ROLLBACK");
-		throw error;
-	}
-}
-
-function normalizeLegacyRouterSchema(db: DatabaseSync): void {
-	const hasTable = (name: string): boolean => {
-		const row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name) as { name?: string } | undefined;
-		return Boolean(row?.name);
-	};
-
-	if (hasTable("router_weights")) {
-		const cols = db.prepare("PRAGMA table_info(router_weights)").all() as Array<{ name: string }>;
-		const names = new Set(cols.map((c) => String(c.name)));
-		if (names.has("type") && !names.has("scope")) {
-			try {
-				db.exec("ALTER TABLE router_weights RENAME COLUMN type TO scope");
-			} catch {
-				// Fallback for older SQLite: add scope and backfill from type
-				db.exec("ALTER TABLE router_weights ADD COLUMN scope TEXT");
-				db.exec("UPDATE router_weights SET scope = type WHERE scope IS NULL OR scope = ''");
-			}
-		}
-		if (!names.has("updates")) {
-			try {
-				db.exec("ALTER TABLE router_weights ADD COLUMN updates INTEGER NOT NULL DEFAULT 0");
-			} catch {
-				// ignore if already added by a concurrent init
-			}
-		}
-	}
-
-	// Early experimental schema used router_kv; migrate values into router_settings.
-	if (hasTable("router_kv")) {
-		db.exec("CREATE TABLE IF NOT EXISTS router_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
-		db.exec("INSERT OR REPLACE INTO router_settings(key, value) SELECT key, value FROM router_kv");
-	}
-}
-
-function getRouterDb(): DatabaseSync {
-	if (routerDb) return routerDb;
-	const path = getRouterDbPath();
-	mkdirSync(dirname(path), { recursive: true });
-	const db = new DatabaseSync(path);
-	normalizeLegacyRouterSchema(db);
-	applyRouterMigrations(db);
-	routerDb = db;
-	return db;
-}
-
-function getRouterSchemaVersion(): number {
-	return getAppliedRouterSchemaVersion(getRouterDb());
-}
-
-function dbGetNumber(key: string, fallback = 0): number {
-	const row = getRouterDb().prepare("SELECT value FROM router_settings WHERE key = ?").get(key) as { value?: string } | undefined;
-	if (!row?.value) return fallback;
-	const n = Number(row.value);
-	return Number.isFinite(n) ? n : fallback;
-}
-
-function dbSetNumber(key: string, value: number): void {
-	// SQLite compatibility: avoid ON CONFLICT ... DO UPDATE (not available on older builds)
-	getRouterDb().prepare("INSERT OR REPLACE INTO router_settings(key, value) VALUES(?, ?)").run(key, String(value));
-}
-
-function canonicalFamily(modelId: string): string {
-	let v = modelId.toLowerCase().trim();
-	v = v.replace(/:[a-z0-9_-]+$/g, "");
-	v = v.replace(/\/(?:[^/]+)$/g, (m) => m.replace("/", ""));
-	v = v.replace(/[-_](20\d{2}(?:[-_]?\d{2}){0,2}|\d{6,8})$/g, "");
-	v = v.replace(/[-_]?v\d+(?:\.\d+)?$/g, "");
-	v = v.replace(/\s+/g, "-");
-	return v;
-}
-
-function exactKey(model: { provider: string; model: string }): string {
-	return `${model.provider.toLowerCase()}::${model.model.toLowerCase().replace(/:[a-z0-9_-]+$/g, "")}`;
-}
-
-function familyKey(model: { model: string }): string {
-	return canonicalFamily(model.model);
-}
-
-function providerFamilyKey(model: { provider: string; model: string }): string {
-	return `${model.provider.toLowerCase()}::${familyKey(model)}`;
-}
-
-function readWeight(scope: string, key: string): { weight: number; updates: number } {
-	const row = getRouterDb().prepare("SELECT weight, updates FROM router_weights WHERE scope = ? AND key = ?").get(scope, key) as
-		| { weight?: number; updates?: number }
-		| undefined;
-	return { weight: Number(row?.weight ?? 0), updates: Number(row?.updates ?? 0) };
-}
-
-function addWeight(scope: string, key: string, delta: number): void {
-	const db = getRouterDb();
-	const row = db.prepare("SELECT weight, updates FROM router_weights WHERE scope = ? AND key = ?").get(scope, key) as
-		| { weight?: number; updates?: number }
-		| undefined;
-	if (row) {
-		db.prepare("UPDATE router_weights SET weight = ?, updates = ? WHERE scope = ? AND key = ?").run(
-			Number(row.weight ?? 0) + delta,
-			Number(row.updates ?? 0) + 1,
-			scope,
-			key,
-		);
-		return;
-	}
-	db.prepare("INSERT INTO router_weights(scope, key, weight, updates) VALUES(?, ?, ?, 1)").run(scope, key, delta);
-}
-
 function routerSampleCount(): number {
 	const cached = dbGetNumber("sample_count", -1);
 	if (cached >= 0) return cached;
@@ -2088,7 +1880,7 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
 					`Learning: ${config.router.learnEnabled ? "on" : "off"}`,
 					`Confidence margin: ${config.router.minMarginForAutoPick}`,
 					`SQLite DB: ${getRouterDbPath()}`,
-					`DB schema: v${schemaVersion}/${ROUTER_DB_SCHEMA_VERSION}`,
+					`DB schema: v${schemaVersion}/${getRouterSchemaVersion()}`,
 					`Training samples: ${stats.samples} | Learned weights: ${stats.weights}`,
 					taxonomyActionMessage,
 				]
