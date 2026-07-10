@@ -1,5 +1,5 @@
-import type { ServerEntry } from "./types.js";
-import { resolveHeaders } from "./config.js";
+import { resolveHeaders } from './config.js';
+import type { ServerEntry } from './types.js';
 
 interface LMStudioModelsResponse {
   models?: Array<{ key: string; loaded_instances?: unknown[] }>;

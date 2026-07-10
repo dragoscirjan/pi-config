@@ -1,6 +1,6 @@
-import type { DiscoverModels, NormalizedModel, ServerEntry } from "../types.js";
-import { resolveHeaders } from "../config.js";
-import { logWarn } from "../log.js";
+import { resolveHeaders } from '../config.js';
+import { logWarn } from '../log.js';
+import type { DiscoverModels, NormalizedModel, ServerEntry } from '../types.js';
 
 interface LMStudioModel {
   type: string;
@@ -30,7 +30,7 @@ export const discoverLMStudioModels: DiscoverModels = async (server: ServerEntry
     if (!response.ok) throw new Error(`LM Studio HTTP status: ${response.status}`);
 
     const data = (await response.json()) as { models?: LMStudioModel[] };
-    const models = (data.models ?? []).filter((m) => m.type === "llm");
+    const models = (data.models ?? []).filter((m) => m.type === 'llm');
 
     return models.map((m) => ({
       id: m.key,

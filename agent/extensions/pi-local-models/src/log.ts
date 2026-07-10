@@ -1,6 +1,6 @@
-const PREFIX = "[pi-local-models]";
+const PREFIX = '[pi-local-models]';
 
-type Notifier = (message: string, type?: "info" | "warning" | "error") => void;
+type Notifier = (message: string, type?: 'info' | 'warning' | 'error') => void;
 
 /** Set by the extension whenever an `ExtensionContext` (with `ctx.ui`) is
  * available, so warnings surface as in-app notifications (e.g. after
@@ -37,13 +37,14 @@ export async function runSilently<T>(fn: () => Promise<T>): Promise<T> {
 export function describeError(error: unknown): string {
   if (error instanceof Error) {
     const cause = (error as { cause?: unknown }).cause;
-    const code = cause && typeof cause === "object" && "code" in cause ? String((cause as { code: unknown }).code) : undefined;
+    const code =
+      cause && typeof cause === 'object' && 'code' in cause ? String((cause as { code: unknown }).code) : undefined;
 
-    if (error.name === "AbortError" || code === "ABORT_ERR") return "timed out";
-    if (code === "ECONNREFUSED") return "connection refused (is the server running?)";
-    if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "host not found";
-    if (code === "ETIMEDOUT") return "timed out";
-    if (error.message === "fetch failed" && cause instanceof Error) return cause.message;
+    if (error.name === 'AbortError' || code === 'ABORT_ERR') return 'timed out';
+    if (code === 'ECONNREFUSED') return 'connection refused (is the server running?)';
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'host not found';
+    if (code === 'ETIMEDOUT') return 'timed out';
+    if (error.message === 'fetch failed' && cause instanceof Error) return cause.message;
     return error.message;
   }
   return String(error);
@@ -58,7 +59,7 @@ export function logWarn(context: string, error?: unknown): void {
   const message = error === undefined ? `${PREFIX} ${context}` : `${PREFIX} ${context}: ${describeError(error)}`;
 
   if (notifier) {
-    notifier(message, "warning");
+    notifier(message, 'warning');
   } else {
     console.error(message);
   }

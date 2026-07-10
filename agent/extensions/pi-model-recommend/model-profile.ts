@@ -1,1 +1,1 @@
-export { buildModelProfile, buildCostHintIndex, clamp } from "./profiles";
+export { buildModelProfile, buildCostHintIndex, clamp } from './profiles';

@@ -1,6 +1,6 @@
-import type { DiscoverModels, NormalizedModel, ServerEntry } from "../types.js";
-import { resolveHeaders } from "../config.js";
-import { logWarn } from "../log.js";
+import { resolveHeaders } from '../config.js';
+import { logWarn } from '../log.js';
+import type { DiscoverModels, NormalizedModel, ServerEntry } from '../types.js';
 
 interface OpenAIModelsResponse {
   data?: Array<{ id: string }>;

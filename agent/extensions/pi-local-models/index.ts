@@ -1,7 +1,7 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { createSyncProviders } from "./src/sync.js";
-import { setNotifier, runSilently } from "./src/log.js";
-import { isLMStudioModelLoaded } from "./src/loading-check.js";
+import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+import { isLMStudioModelLoaded } from './src/loading-check.js';
+import { setNotifier, runSilently } from './src/log.js';
+import { createSyncProviders } from './src/sync.js';
 
 /**
  * pi-local-models: registers LM Studio, Ollama, llama.cpp, and MLX local
@@ -29,12 +29,12 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // Re-sync immediately on session start (covers `/reload`, which does not
   // fire agent_start/message_end), and wire up ctx.ui.notify so warnings
   // show up in the UI instead of only going to a console nobody watches.
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on('session_start', async (_event, ctx) => {
     setNotifier(ctx.hasUI ? (message, type) => ctx.ui.notify(message, type) : undefined);
     await syncProviders();
   });
 
-  pi.on("agent_start", () => {
+  pi.on('agent_start', () => {
     fetchedThisCycle = false;
   });
 
@@ -42,8 +42,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // mid-session. Runs silently: `session_start` already surfaced any
   // connection problems once (at startup/reload), so repeating the same
   // warning on every single prompt would just be noise.
-  pi.on("message_end", async (event) => {
-    if (event.message.role === "assistant" && !fetchedThisCycle) {
+  pi.on('message_end', async (event) => {
+    if (event.message.role === 'assistant' && !fetchedThisCycle) {
       fetchedThisCycle = true;
       await runSilently(() => syncProviders());
     }
@@ -53,20 +53,20 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // model isn't loaded into memory yet (cold requests can take a while).
   // No progress % is available from any backend's API, so this is just a
   // static working-message override, restored once the response starts.
-  pi.on("before_provider_request", async (_event, ctx) => {
+  pi.on('before_provider_request', async (_event, ctx) => {
     const model = ctx.model;
     if (!model) return;
 
     const entry = syncProviders.getServer(model.provider);
-    if (!entry || entry.backend !== "lmstudio") return;
+    if (!entry || entry.backend !== 'lmstudio') return;
 
     const loaded = await isLMStudioModelLoaded(entry.server, model.id);
     if (!loaded) {
-      ctx.ui.setWorkingMessage("⏳ loading model…");
+      ctx.ui.setWorkingMessage('⏳ loading model…');
     }
   });
 
-  pi.on("after_provider_response", (_event, ctx) => {
+  pi.on('after_provider_response', (_event, ctx) => {
     ctx.ui.setWorkingMessage();
   });
 }
