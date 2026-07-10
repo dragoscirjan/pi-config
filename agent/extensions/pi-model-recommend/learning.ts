@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
-import { clamp } from "./profiles";
+import { clamp, hashString } from "./profiles";
 import type { ScoredModel, Intent, RecommendConfig } from "./types";
 
 // ─── Migration System ────────────────────────────────────────────────────────
@@ -277,6 +277,7 @@ export function persistTrainingSample(
 	margin: number,
 ): void {
 	const ts = Date.now();
+	const promptHash = String(hashString(task));
 	getRouterDb()
 		.prepare(
 			"INSERT INTO router_samples(ts, mode, prompt_hash, selected_exact, selected_provider_family, selected_family, candidate_count, margin, features_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -284,14 +285,21 @@ export function persistTrainingSample(
 		.run(
 			ts,
 			mode,
-			task,
+			promptHash,
 			exactKey(selected),
 			providerFamilyKey(selected),
 			familyKey(selected),
 			offered.length,
 			margin,
-			JSON.stringify(intent),
+			JSON.stringify({
+				complexity: intent.complexity,
+				domains: Array.from(intent.domains),
+				languages: Array.from(intent.languages),
+				categories: Array.from(intent.matchedTaxonomyCategories),
+				needs: intent.capabilityNeeds,
+			}),
 		);
+	dbSetNumber("sample_count", routerSampleCount() + 1);
 }
 
 export function trainPairwiseSelection(
@@ -329,4 +337,36 @@ export function getLearningStats() {
 	} catch {
 		return { samples: 0, weights: 0 };
 	}
+}
+
+function routerSampleCount(): number {
+	const cached = dbGetNumber("sample_count", -1);
+	if (cached >= 0) return cached;
+	const row = getRouterDb().prepare("SELECT COUNT(*) as c FROM router_samples").get() as { c?: number } | undefined;
+	const count = Number(row?.c ?? 0);
+	dbSetNumber("sample_count", count);
+	return count;
+}
+
+export function applyLearnedAdjustments(scored: ScoredModel[], config: RecommendConfig): ScoredModel[] {
+	const samples = routerSampleCount();
+	const warmup = Math.max(1, Number(config.router.learning.alphaWarmupSamples ?? 200));
+	const maxAlpha = clamp(Number(config.router.learning.maxAlpha ?? 0.45), 0, 0.9);
+	const alpha = clamp((samples / warmup) * maxAlpha, 0, maxAlpha);
+	for (const m of scored) {
+		const fam = readWeight("family", familyKey(m));
+		const pf = readWeight("provider_family", providerFamilyKey(m));
+		const ex = readWeight("exact", exactKey(m));
+		const learned = fam.weight * 0.5 + pf.weight * 0.3 + ex.weight * 0.2;
+		m.score = clamp(m.score + learned * alpha, 0, 100);
+		if (Math.abs(learned) > 0.001) m.breakdown.reasons.push(`learned-bias=${(learned * alpha).toFixed(2)} alpha=${alpha.toFixed(2)}`);
+		m.breakdown.final = m.score;
+	}
+	return scored;
+}
+
+export function resetLearningStore(): void {
+	const db = getRouterDb();
+	db.exec("DELETE FROM router_weights; DELETE FROM router_samples;");
+	dbSetNumber("sample_count", 0);
 }
