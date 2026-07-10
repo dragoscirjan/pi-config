@@ -9,6 +9,6 @@
     ]
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "latest"
+    "@mariozechner/pi-coding-agent": "^0.73.1"
   }
 }
