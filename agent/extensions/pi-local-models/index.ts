@@ -13,6 +13,33 @@ import { createSyncProviders } from './src/sync.js';
  */
 export default async function (pi: ExtensionAPI): Promise<void> {
   const syncProviders = createSyncProviders(pi);
+  const loadedCache = new Map<string, { loaded: boolean; expiresAt: number }>();
+  const loadedInFlight = new Map<string, Promise<boolean>>();
+
+  const getLoadedState = async (serverUrl: string, modelId: string): Promise<boolean> => {
+    const key = `${serverUrl}::${modelId}`;
+    const now = Date.now();
+    const cached = loadedCache.get(key);
+    if (cached && cached.expiresAt > now) return cached.loaded;
+
+    const pending = loadedInFlight.get(key);
+    if (pending) return pending;
+
+    const promise = isLMStudioModelLoaded(serverUrl, modelId)
+      .then((loaded) => {
+        loadedCache.set(key, {
+          loaded,
+          expiresAt: now + 5000,
+        });
+        return loaded;
+      })
+      .finally(() => {
+        loadedInFlight.delete(key);
+      });
+
+    loadedInFlight.set(key, promise);
+    return promise;
+  };
 
   // Initial sync at extension load, so models are available immediately
   // (including for `pi --list-models`, which never fires `session_start`).
@@ -60,7 +87,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     const entry = syncProviders.getServer(model.provider);
     if (!entry || entry.backend !== 'lmstudio') return;
 
-    const loaded = await isLMStudioModelLoaded(entry.server, model.id);
+    const loaded = await getLoadedState(entry.server.url, model.id);
     if (!loaded) {
       ctx.ui.setWorkingMessage('⏳ loading model…');
     }

@@ -12,6 +12,14 @@ interface OllamaTagsResponse {
   }>;
 }
 
+interface OllamaTagModel {
+  name: string;
+  model?: string;
+  size?: number;
+  digest?: string;
+  details?: { family?: string; parameter_size?: string; quantization_level?: string };
+}
+
 interface OllamaShowResponse {
   model_info?: Record<string, unknown>;
   details?: { family?: string };
@@ -40,6 +48,39 @@ function extractContextLength(show: OllamaShowResponse): number | undefined {
   return undefined;
 }
 
+function readTagModels(payload: unknown): OllamaTagModel[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const models = (payload as { models?: unknown }).models;
+  if (!Array.isArray(models)) return [];
+
+  return models
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+    .map((entry) => ({
+      name: typeof entry.name === 'string' ? entry.name : '',
+      model: typeof entry.model === 'string' ? entry.model : undefined,
+      size: typeof entry.size === 'number' ? entry.size : undefined,
+      digest: typeof entry.digest === 'string' ? entry.digest : undefined,
+      details:
+        entry.details && typeof entry.details === 'object'
+          ? {
+              family:
+                typeof (entry.details as { family?: unknown }).family === 'string'
+                  ? (entry.details as { family: string }).family
+                  : undefined,
+              parameter_size:
+                typeof (entry.details as { parameter_size?: unknown }).parameter_size === 'string'
+                  ? (entry.details as { parameter_size: string }).parameter_size
+                  : undefined,
+              quantization_level:
+                typeof (entry.details as { quantization_level?: unknown }).quantization_level === 'string'
+                  ? (entry.details as { quantization_level: string }).quantization_level
+                  : undefined,
+            }
+          : undefined,
+    }))
+    .filter((entry) => entry.name.length > 0);
+}
+
 /**
  * Discover models from an Ollama server via its native API:
  * `GET {url}/api/tags` for the model list, then `POST {url}/api/show` per
@@ -49,14 +90,14 @@ function extractContextLength(show: OllamaShowResponse): number | undefined {
 export const discoverOllamaModels: DiscoverModels = async (server: ServerEntry): Promise<NormalizedModel[]> => {
   const headers = resolveHeaders(server.headers);
 
-  let tags: OllamaTagsResponse;
+  let tagsPayload: unknown;
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
       const response = await fetch(`${server.url}/api/tags`, { signal: controller.signal, headers });
       if (!response.ok) throw new Error(`Ollama HTTP status: ${response.status}`);
-      tags = (await response.json()) as OllamaTagsResponse;
+      tagsPayload = (await response.json()) as OllamaTagsResponse;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -65,7 +106,7 @@ export const discoverOllamaModels: DiscoverModels = async (server: ServerEntry):
     return [];
   }
 
-  const entries = tags.models ?? [];
+  const entries = readTagModels(tagsPayload);
   const results = await Promise.allSettled(
     entries.map(async (entry): Promise<NormalizedModel> => {
       let contextWindow: number | undefined;

@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { getAgentDir, type ExtensionAPI, DynamicBorder } from '@mariozechner/pi-coding-agent';
+import { writeFileSync } from 'node:fs';
+import { type ExtensionAPI, DynamicBorder } from '@mariozechner/pi-coding-agent';
 import { Container, type SelectItem, SelectList, Input, Text, Key, matchesKey } from '@mariozechner/pi-tui';
+import { getAuthenticatedProvidersFromAuthJson } from './auth';
 import { syncBenchmarks, getAllBenchmarks, findBenchmarkForModel } from './benchmarks';
 import { analyzeIntent } from './intent';
 import {
@@ -67,27 +67,6 @@ function tokenize(raw: string): string[] {
     if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) return t.slice(1, -1);
     return t;
   });
-}
-
-function getAuthenticatedProvidersFromAuthJson(): Set<string> {
-  const authPath = join(getAgentDir(), 'auth.json');
-  if (!existsSync(authPath)) return new Set();
-  try {
-    const raw = readFileSync(authPath, 'utf-8');
-    const json = JSON.parse(raw) as Record<string, any>;
-    const providers = new Set<string>();
-    for (const [provider, cfg] of Object.entries(json)) {
-      if (!cfg || typeof cfg !== 'object') continue;
-      const type = String(cfg.type ?? '').toLowerCase();
-      const hasApiKey = Boolean(cfg.key ?? cfg.apiKey);
-      const hasOAuthToken = Boolean(cfg.access ?? cfg.refresh ?? cfg.token);
-      if ((type === 'api_key' && hasApiKey) || (type === 'oauth' && hasOAuthToken) || hasApiKey || hasOAuthToken)
-        providers.add(provider);
-    }
-    return providers;
-  } catch {
-    return new Set();
-  }
 }
 
 function parseRecommendArgs(raw: string): RecommendOptions {

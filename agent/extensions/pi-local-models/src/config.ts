@@ -49,16 +49,12 @@ export function loadConfig(): LocalModelsConfig {
  * unresolved (returned as-is), matching Pi's own documented behavior.
  */
 export function resolveValue(value: string): string {
-  if (value === '$$') return '$';
-  if (value.startsWith('${') && value.endsWith('}')) {
-    const envKey = value.slice(2, -1);
-    return process.env[envKey] ?? value;
-  }
-  if (value.startsWith('$') && !value.startsWith('$$')) {
-    const envKey = value.slice(1);
-    return process.env[envKey] ?? value;
-  }
-  return value;
+  return value.replace(/\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, braced, bare) => {
+    if (match === '$$') return '$';
+    const envKey = (braced ?? bare) as string | undefined;
+    if (!envKey) return match;
+    return process.env[envKey] ?? match;
+  });
 }
 
 /**

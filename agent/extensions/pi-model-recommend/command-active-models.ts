@@ -1,7 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
-import { getAgentDir } from '@mariozechner/pi-coding-agent';
+import { getAuthenticatedProvidersFromAuthJson } from './auth';
 import { getAllBenchmarks, findBenchmarkForModel } from './benchmarks';
 import { buildModelProfile, buildCostHintIndex, clamp } from './profiles';
 import type { ModelLike } from './types';
@@ -36,25 +34,6 @@ function tokenize(raw: string): string[] {
     if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) return t.slice(1, -1);
     return t;
   });
-}
-
-function getAuthenticatedProvidersFromAuthJson(): Set<string> {
-  const authPath = join(getAgentDir(), 'auth.json');
-  if (!existsSync(authPath)) return new Set();
-  try {
-    const raw = readFileSync(authPath, 'utf-8');
-    const json = JSON.parse(raw) as Record<string, any>;
-    const providers = new Set<string>();
-    for (const [provider, cfg] of Object.entries(json)) {
-      if (!cfg || typeof cfg !== 'object') continue;
-      const p = provider.toLowerCase();
-      if (p === 'github-copilot' || Boolean(cfg.key ?? cfg.apiKey) || Boolean(cfg.access ?? cfg.refresh ?? cfg.token))
-        providers.add(provider);
-    }
-    return providers;
-  } catch {
-    return new Set();
-  }
 }
 
 export function registerActiveModelsCommand(pi: ExtensionAPI) {

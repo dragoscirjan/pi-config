@@ -115,9 +115,17 @@ export function estimateToolReliability(
 
 function canonicalModelId(id: string): string {
   const lower = id.toLowerCase().trim();
-  const noThinking = lower.replace(/:[a-z0-9_-]+$/i, '');
-  const parts = noThinking.split('/');
-  return parts.length > 1 ? parts[parts.length - 1] : noThinking;
+  const parts = lower.split('/');
+  const tail = parts.length > 1 ? parts[parts.length - 1] : lower;
+  const tagMatch = tail.match(/:([^/]+)$/);
+  if (!tagMatch || !tagMatch[1]) return tail;
+
+  const tag = tagMatch[1];
+  // Preserve size-bearing tags like ":7b" / ":70b" because they are model
+  // identity, but strip mutable/runtime tags (e.g. ":latest", ":thinking").
+  const looksLikeSizeTag = /^\d+(?:\.\d+)?b(?:-[a-z0-9._-]+)?$/i.test(tag);
+  if (looksLikeSizeTag) return tail;
+  return tail.slice(0, tail.length - tag.length - 1);
 }
 
 function addHint(index: CostHintIndex, key: string, input: number, output: number): void {

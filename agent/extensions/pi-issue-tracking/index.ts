@@ -4,7 +4,10 @@ import { StringEnum } from '@mariozechner/pi-ai';
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { Type } from 'typebox';
 
-const TYPE_EMOTICONS: any = {
+type IssueType = 'initiative' | 'epic' | 'story' | 'task' | 'bug';
+type IssueStatus = 'open' | 'in_progress' | 'done' | 'closed';
+
+const TYPE_EMOTICONS: Record<IssueType, string> = {
   initiative: '🚀',
   epic: '🏔️',
   story: '📖',
@@ -12,7 +15,144 @@ const TYPE_EMOTICONS: any = {
   bug: '🐛',
 };
 
-export default function (pi: ExtensionAPI) {
+function ensureIssuesDir(cwd: string): string {
+  const issuesDir = path.join(cwd, '.issues');
+  if (!fs.existsSync(issuesDir)) fs.mkdirSync(issuesDir, { recursive: true });
+  return issuesDir;
+}
+
+function yamlQuoted(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function sanitizeSingleLine(value: unknown, fallback = ''): string {
+  if (typeof value !== 'string') return fallback;
+  const cleaned = value.replace(/[\r\n]+/g, ' ').trim();
+  return cleaned || fallback;
+}
+
+function parseDepends(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  return value
+    .split(',')
+    .map((dep) => dep.trim())
+    .filter(Boolean);
+}
+
+function stripYamlQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1).replace(/''/g, "'");
+  }
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1).replace(/\\"/g, '"');
+  }
+  return trimmed;
+}
+
+function parseFrontmatter(content: string): Record<string, string> {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match || !match[1]) return {};
+
+  const out: Record<string, string> = {};
+  for (const line of match[1].split('\n')) {
+    const colon = line.indexOf(':');
+    if (colon <= 0) continue;
+    const key = line.slice(0, colon).trim();
+    const value = line.slice(colon + 1).trim();
+    if (!key) continue;
+    out[key] = stripYamlQuotes(value);
+  }
+  return out;
+}
+
+function nextIssueId(issuesDir: string): string {
+  const files = fs.readdirSync(issuesDir);
+  let max = 0;
+  for (const file of files) {
+    const match = file.match(/^(\d+)/);
+    if (!match || !match[1]) continue;
+    const parsed = Number.parseInt(match[1], 10);
+    if (Number.isFinite(parsed) && parsed > max) max = parsed;
+  }
+  return String(max + 1).padStart(5, '0');
+}
+
+function createIssueAtomically(
+  issuesDir: string,
+  type: IssueType,
+  title: string,
+  status: IssueStatus,
+  description: string,
+  criteria: string,
+  parent: string,
+  depends: string[],
+  author: string,
+  assignee: string,
+): { id: string; filename: string; filepath: string } {
+  const slug =
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'untitled';
+
+  for (let attempt = 0; attempt < 128; attempt++) {
+    const id = nextIssueId(issuesDir);
+    const filename = `${id}-${type}-${slug}.md`;
+    const filepath = path.join(issuesDir, filename);
+
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(filepath, 'wx');
+
+      let frontmatter = '---\n';
+      frontmatter += `id: ${yamlQuoted(id)}\n`;
+      frontmatter += `type: ${type}\n`;
+      frontmatter += `title: ${yamlQuoted(title)}\n`;
+      frontmatter += `status: ${status}\n`;
+      if (parent) frontmatter += `parent: ${yamlQuoted(parent)}\n`;
+      if (depends.length > 0) {
+        const serialized = depends.map((dep) => yamlQuoted(dep)).join(', ');
+        frontmatter += `depends: [${serialized}]\n`;
+      }
+      if (author) frontmatter += `opencode-agent: ${yamlQuoted(author)}\n`;
+      if (assignee) frontmatter += `opencode-assignee: ${yamlQuoted(assignee)}\n`;
+      frontmatter += '---\n';
+
+      const em = TYPE_EMOTICONS[type] ?? '';
+      let body = `# ${em} ${title}\n\n`;
+      body += `## Description\n${description || '<!-- As a... I want to... So that... -->'}\n\n`;
+      if (type === 'bug') {
+        body += '## Steps to Reproduce\n1. \n\n## Expected Behavior\n\n## Actual Behavior\n\n';
+      } else if (type === 'initiative' || type === 'epic' || type === 'story') {
+        body += '## Scope\n\n## Goals\n\n## Risks\n\n';
+      } else {
+        body += '## Technical Requirements\n\n';
+      }
+      body += `## Acceptance Criteria\n${criteria || '- [ ] '}\n\n`;
+      body += '## Comments\n';
+
+      fs.writeFileSync(fd, `${frontmatter}\n${body}`, 'utf-8');
+      fs.closeSync(fd);
+      return { id, filename, filepath };
+    } catch (error) {
+      if (fd !== undefined) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // noop
+        }
+      }
+      const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : '';
+      if (code === 'EEXIST') continue;
+      throw error;
+    }
+  }
+
+  throw new Error('Failed to allocate issue ID after multiple attempts.');
+}
+
+export default function registerIssueTrackingExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: 'issue_create',
     label: 'Create Issue',
@@ -28,62 +168,35 @@ export default function (pi: ExtensionAPI) {
       author: Type.Optional(Type.String()),
       assignee: Type.Optional(Type.String()),
     }),
-    async execute(toolCallId, params: any, signal, onUpdate, ctx) {
-      const issuesDir = path.join(ctx.cwd, '.issues');
-      if (!fs.existsSync(issuesDir)) fs.mkdirSync(issuesDir, { recursive: true });
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const issuesDir = ensureIssuesDir(ctx.cwd);
+      const type = (sanitizeSingleLine(params.type, 'task') as IssueType) ?? 'task';
+      const title = sanitizeSingleLine(params.title, 'untitled');
+      const status = (sanitizeSingleLine(params.status, 'open') as IssueStatus) ?? 'open';
+      const description = typeof params.description === 'string' ? params.description : '';
+      const criteria = typeof params.criteria === 'string' ? params.criteria : '';
+      const parent = sanitizeSingleLine(params.parent);
+      const depends = parseDepends(params.depends);
+      const author = sanitizeSingleLine(params.author);
+      const assignee = sanitizeSingleLine(params.assignee);
 
-      const files = fs.readdirSync(issuesDir);
-      let max = 0;
-      for (const file of files) {
-        const match = file.match(/^(\d+)/);
-        if (match && match[1]) {
-          const val = parseInt(match[1], 10);
-          if (val > max) max = val;
-        }
-      }
-      const id = String(max + 1).padStart(5, '0');
+      const created = createIssueAtomically(
+        issuesDir,
+        type,
+        title,
+        status,
+        description,
+        criteria,
+        parent,
+        depends,
+        author,
+        assignee,
+      );
 
-      const type = String(params.type || 'task');
-      const title = String(params.title || 'untitled');
-      const slug = title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-      const filename = id + '-' + type + '-' + slug + '.md';
-      const filepath = path.join(issuesDir, filename);
-
-      let frontmatter = '---\n';
-      frontmatter += 'id: "' + id + '"\n';
-      frontmatter += 'type: ' + type + '\n';
-      frontmatter += 'title: "' + title + '"\n';
-      frontmatter += 'status: ' + (params.status || 'open') + '\n';
-      if (params.parent) frontmatter += 'parent: "' + params.parent + '"\n';
-      if (params.depends) {
-        const deps = String(params.depends)
-          .split(',')
-          .map((d) => '"' + d.trim() + '"')
-          .join(', ');
-        frontmatter += 'depends: [' + deps + ']\n';
-      }
-      if (params.author) frontmatter += 'opencode-agent: ' + params.author + '\n';
-      if (params.assignee) frontmatter += 'opencode-assignee: ' + params.assignee + '\n';
-      frontmatter += '---\n';
-
-      const em = TYPE_EMOTICONS[type] || '';
-      let body = '# ' + em + ' ' + title + '\n\n';
-      body += '## Description\n' + (params.description || '<!-- As a... I want to... So that... -->') + '\n\n';
-      if (type === 'bug') {
-        body += '## Steps to Reproduce\n1. \n\n## Expected Behavior\n\n## Actual Behavior\n\n';
-      } else if (['initiative', 'epic', 'story'].includes(type)) {
-        body += '## Scope\n\n## Goals\n\n## Risks\n\n';
-      } else if (type === 'task') {
-        body += '## Technical Requirements\n\n';
-      }
-      body += '## Acceptance Criteria\n' + (params.criteria || '- [ ] ') + '\n\n';
-      body += '## Comments\n';
-
-      fs.writeFileSync(filepath, frontmatter + '\n' + body, 'utf-8');
-      return { content: [{ type: 'text', text: 'Created: .issues/' + filename }], details: { id, filepath } as any };
+      return {
+        content: [{ type: 'text', text: `Created: .issues/${created.filename}` }],
+        details: { id: created.id, filepath: created.filepath },
+      };
     },
   });
 
@@ -95,43 +208,33 @@ export default function (pi: ExtensionAPI) {
       status: Type.Optional(StringEnum(['open', 'in_progress', 'done', 'closed'])),
       type: Type.Optional(StringEnum(['initiative', 'epic', 'story', 'task', 'bug'])),
     }),
-    async execute(toolCallId, params: any, signal, onUpdate, ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const issuesDir = path.join(ctx.cwd, '.issues');
-      if (!fs.existsSync(issuesDir))
-        return { content: [{ type: 'text', text: 'No issues.' }], details: { issues: [] } as any };
+      if (!fs.existsSync(issuesDir)) {
+        return { content: [{ type: 'text', text: 'No issues.' }], details: { issues: [] } };
+      }
+
       const issues: string[] = [];
-      const files = fs.readdirSync(issuesDir).filter((f) => f.endsWith('.md'));
+      const files = fs.readdirSync(issuesDir).filter((file) => file.endsWith('.md'));
       for (const file of files) {
         const content = fs.readFileSync(path.join(issuesDir, file), 'utf-8');
-        const idMatch = content.match(/^id:\s*"?(\d+)"?/m);
-        const stMatch = content.match(/^status:\s*"?([a-z_]+)"?/m);
-        const tyMatch = content.match(/^type:\s*"?([a-z_]+)"?/m);
-        const tiMatch = content.match(/^title:\s*"?(.+?)"?$/m);
+        const fm = parseFrontmatter(content);
 
-        const id = idMatch && idMatch[1] ? idMatch[1] : '?????';
-        const st = stMatch && stMatch[1] ? stMatch[1] : 'unknown';
-        const ty = tyMatch && tyMatch[1] ? tyMatch[1] : 'unknown';
-        const ti = tiMatch && tiMatch[1] ? tiMatch[1] : 'untitled';
+        const id = fm.id ?? '?????';
+        const status = fm.status ?? 'unknown';
+        const type = fm.type ?? 'unknown';
+        const title = fm.title ?? 'untitled';
 
-        if (params.status && params.status !== st) continue;
-        if (params.type && params.type !== ty) continue;
-        const em = TYPE_EMOTICONS[ty] || ' ';
-        issues.push(
-          '[' +
-            id +
-            '] ' +
-            em +
-            ' ' +
-            String(ty || 'unknown').padEnd(10) +
-            ' | ' +
-            String(st || 'unknown').padEnd(12) +
-            ' | ' +
-            ti,
-        );
+        if (params.status && params.status !== status) continue;
+        if (params.type && params.type !== type) continue;
+
+        const em = (TYPE_EMOTICONS as Record<string, string>)[type] ?? ' ';
+        issues.push(`[${id}] ${em} ${String(type).padEnd(10)} | ${String(status).padEnd(12)} | ${title}`);
       }
+
       return {
         content: [{ type: 'text', text: issues.sort().join('\n') || 'None found.' }],
-        details: { issues } as any,
+        details: { issues },
       };
     },
   });
@@ -141,16 +244,18 @@ export default function (pi: ExtensionAPI) {
     label: 'Read Issue',
     description: 'Read the full content of a specific issue.',
     parameters: Type.Object({ id: Type.String() }),
-    async execute(toolCallId, params: any, signal, onUpdate, ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const issuesDir = path.join(ctx.cwd, '.issues');
-      const sid = String(params.id || '').trim();
-      if (!sid) throw new Error('ID required.');
-      const files = fs.readdirSync(issuesDir).filter((f) => f.endsWith('.md') && f.startsWith(sid + '-'));
+      const id = sanitizeSingleLine(params.id);
+      if (!id) throw new Error('ID required.');
+
+      const files = fs.readdirSync(issuesDir).filter((file) => file.endsWith('.md') && file.startsWith(`${id}-`));
       if (files.length !== 1) throw new Error('Not found.');
-      const fn = files[0] as string;
+
+      const file = files[0] as string;
       return {
-        content: [{ type: 'text', text: fs.readFileSync(path.join(issuesDir, fn), 'utf-8') }],
-        details: { file: fn } as any,
+        content: [{ type: 'text', text: fs.readFileSync(path.join(issuesDir, file), 'utf-8') }],
+        details: { file },
       };
     },
   });
@@ -167,27 +272,41 @@ export default function (pi: ExtensionAPI) {
       blockers: Type.Optional(Type.String()),
       author: Type.Optional(Type.String()),
     }),
-    async execute(toolCallId, params: any, signal, onUpdate, ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const issuesDir = path.join(ctx.cwd, '.issues');
-      const cid = String(params.id || '').trim();
-      if (!cid) throw new Error('ID required.');
-      const files = fs.readdirSync(issuesDir).filter((f) => f.endsWith('.md') && f.startsWith(cid + '-'));
+      const id = sanitizeSingleLine(params.id);
+      if (!id) throw new Error('ID required.');
+
+      const files = fs.readdirSync(issuesDir).filter((file) => file.endsWith('.md') && file.startsWith(`${id}-`));
       if (files.length !== 1) throw new Error('Not found.');
-      const fn = files[0] as string;
-      const filePath = path.join(issuesDir, fn);
-      const fc = fs.readFileSync(filePath, 'utf-8');
-      let comment = '\n### Update: ' + new Date().toISOString().split('T')[0] + '\n\n';
-      comment += '**Status Update:**\n' + (params.update || '') + '\n\n';
-      if (params.artifacts) comment += '**Artifacts:**\n' + params.artifacts + '\n\n';
-      if (params.next_steps || params.blockers) {
+
+      const file = files[0] as string;
+      const filePath = path.join(issuesDir, file);
+      const current = fs.readFileSync(filePath, 'utf-8');
+      const date = new Date().toISOString().split('T')[0];
+
+      let comment = `\n### Update: ${date}\n\n`;
+      comment += `**Status Update:**\n${typeof params.update === 'string' ? params.update : ''}\n\n`;
+      if (typeof params.artifacts === 'string' && params.artifacts.trim()) {
+        comment += `**Artifacts:**\n${params.artifacts}\n\n`;
+      }
+      if (
+        (typeof params.next_steps === 'string' && params.next_steps.trim()) ||
+        (typeof params.blockers === 'string' && params.blockers.trim())
+      ) {
         comment += '**Next Steps / Blockers:**\n';
-        if (params.next_steps) comment += '- Next: ' + params.next_steps + '\n';
-        if (params.blockers) comment += '- Blocked by: ' + params.blockers + '\n';
+        if (typeof params.next_steps === 'string' && params.next_steps.trim()) {
+          comment += `- Next: ${params.next_steps}\n`;
+        }
+        if (typeof params.blockers === 'string' && params.blockers.trim()) {
+          comment += `- Blocked by: ${params.blockers}\n`;
+        }
         comment += '\n';
       }
-      comment += 'opencode-agent: ' + (params.author || 'agent') + '\n';
-      fs.writeFileSync(filePath, fc + '\n---\n' + comment, 'utf-8');
-      return { content: [{ type: 'text', text: 'Comment added to ' + fn }], details: { file: fn } as any };
+      comment += `opencode-agent: ${sanitizeSingleLine(params.author, 'agent')}\n`;
+
+      fs.writeFileSync(filePath, `${current}\n---\n${comment}`, 'utf-8');
+      return { content: [{ type: 'text', text: `Comment added to ${file}` }], details: { file } };
     },
   });
 }

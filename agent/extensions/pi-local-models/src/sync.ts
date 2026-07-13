@@ -4,6 +4,7 @@ import { discoverLMStudioModels } from './backends/lmstudio.js';
 import { discoverMlxModels } from './backends/mlx.js';
 import { discoverOllamaModels } from './backends/ollama.js';
 import { loadConfig, resolveHeaders } from './config.js';
+import { logWarn } from './log.js';
 import { applyRules } from './rules.js';
 import type { BackendConfig, BackendName, DiscoverModels, ServerEntry } from './types.js';
 
@@ -38,16 +39,35 @@ function collectServers(backends: {
   mlx?: BackendConfig;
 }): Array<{ backend: BackendName; server: ServerEntry; providerName: string }> {
   const entries: Array<{ backend: BackendName; server: ServerEntry; providerName: string }> = [];
+  const seenProviderNames = new Set<string>();
+
+  const ensureUniqueProviderName = (candidate: string, server: ServerEntry): string => {
+    if (!seenProviderNames.has(candidate)) {
+      seenProviderNames.add(candidate);
+      return candidate;
+    }
+
+    let suffix = 2;
+    let next = `${candidate}~${suffix}`;
+    while (seenProviderNames.has(next)) {
+      suffix++;
+      next = `${candidate}~${suffix}`;
+    }
+    seenProviderNames.add(next);
+    logWarn(`provider name collision for '${candidate}', renamed to '${next}' (${server.url})`);
+    return next;
+  };
 
   for (const backend of Object.keys(DISCOVER_BY_BACKEND) as BackendName[]) {
     const config = backends[backend];
     if (!config || !Array.isArray(config.urls) || config.urls.length === 0) continue;
 
     for (const server of config.urls) {
+      const providerName = ensureUniqueProviderName(providerNameFor(backend, server, config.urls.length), server);
       entries.push({
         backend,
         server,
-        providerName: providerNameFor(backend, server, config.urls.length),
+        providerName,
       });
     }
   }

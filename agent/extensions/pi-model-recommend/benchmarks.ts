@@ -6,6 +6,20 @@ export interface BenchmarkStats {
   refactorPassRate: number | null;
 }
 
+async function fetchTextWithTimeout(url: string, timeoutMs = 10000): Promise<string | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function syncBenchmarks(): Promise<number> {
   const editUrl = 'https://raw.githubusercontent.com/paul-gauthier/aider/main/aider/website/_data/edit_leaderboard.yml';
   const refactorUrl =
@@ -15,9 +29,8 @@ export async function syncBenchmarks(): Promise<number> {
 
   let editCount = 0;
   try {
-    const res = await fetch(editUrl);
-    if (res.ok) {
-      const text = await res.text();
+    const text = await fetchTextWithTimeout(editUrl);
+    if (text) {
       const blocks = text.split('\n- dirname:');
       for (const block of blocks.slice(1)) {
         const model = block
@@ -46,9 +59,8 @@ export async function syncBenchmarks(): Promise<number> {
 
   let refactorCount = 0;
   try {
-    const res = await fetch(refactorUrl);
-    if (res.ok) {
-      const text = await res.text();
+    const text = await fetchTextWithTimeout(refactorUrl);
+    if (text) {
       const blocks = text.split('\n- dirname:');
       for (const block of blocks.slice(1)) {
         const model = block

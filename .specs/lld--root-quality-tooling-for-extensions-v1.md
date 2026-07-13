@@ -38,11 +38,10 @@ Reasoning:
 - Root workspace configuration for all extension packages.
 - Shared root quality config files for ESLint/Prettier and duplicate/dead-code checks.
 - Standardized scripts added to each extension package:
-  - `lint`
-  - `format`
-  - `format:check`
+  - `lint` / `lint:fix`
+  - `format` (check mode) / `format:fix` (write mode)
   - `typecheck` (where TS is used)
-  - `test` / `test:watch` (only where tests/config exist)
+  - `test` / `test:watch`
 - Root aggregator scripts to run extension scripts through npm workspaces.
 
 ### Out of scope
@@ -63,16 +62,17 @@ Reasoning:
 ### 5.1 Root files
 
 1. **`/package.json`**
-   - Add `workspaces` targeting `agent/extensions/*`.
-   - Add aggregate scripts such as:
-     - `quality:lint`
-     - `quality:format`
-     - `quality:format:check`
-     - `quality:typecheck`
-     - `quality:test`
-     - `quality:dup`
-     - `quality:dead`
-     - `quality:all`
+   - Add `workspaces` targeting explicit extension packages (plus `agent/npm` support package) to avoid false-positive workspace diagnostics.
+   - Add aggregate scripts at repo root:
+     - `lint` / `lint:fix`
+     - `format` / `format:fix`
+     - `dupcheck`
+      - `fallow:summary`, `fallow:check`, `fallow:audit`, `fallow:dead-code`, `fallow:dupes`, `fallow:health`
+     - `test`
+      - `typecheck` (best-effort aggregate)
+      - `typecheck:strict` (failing aggregate)
+     - `quality`
+     - `quality:fix`
 
 2. **`/.eslintrc.*` or equivalent templ-project config entrypoint**
    - Root shared ESLint config used by all extensions.
@@ -93,19 +93,23 @@ Reasoning:
 For each `agent/extensions/*/package.json`, add/normalize scripts:
 
 - `lint`: run ESLint against local TS/JS files.
-- `format`: run Prettier write mode locally.
-- `format:check`: run Prettier check mode locally.
+- `lint:fix`: run ESLint autofix locally.
+- `format`: run Prettier check mode locally.
+- `format:fix`: run Prettier write mode locally.
 - `typecheck`: `tsc --noEmit` when TS project config exists.
-- `test`: run Vitest if the extension has tests/config; otherwise lightweight no-op pattern is acceptable (to keep root aggregate robust).
+- `test`: run Vitest (packages without tests use `--passWithNoTests` to keep workspace aggregation robust).
 
 ## 6. Execution model
 
 ### Root-level examples
 
-- `npm run quality:lint`
-- `npm run quality:typecheck`
-- `npm run quality:test`
-- `npm run quality:all`
+- `npm run lint`
+- `npm run format`
+- `npm run dupcheck`
+- `npm run fallow:summary`
+- `npm run test`
+- `npm run typecheck`
+- `npm run quality`
 
 ### Extension-level examples
 

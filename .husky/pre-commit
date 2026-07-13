@@ -1,5 +1,7 @@
-#! /usr/bin/env bash
+#!/usr/bin/env bash
 
-for cmd in format:fix lint:fix; do
-  npm run $cmd;
-done
+set -euo pipefail
+
+npm run format:fix
+git add -A
+npm run lint

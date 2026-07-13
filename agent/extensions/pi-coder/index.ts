@@ -66,6 +66,9 @@ interface DetectLanguageDetails {
 }
 
 export default function piCoderExtension(pi: ExtensionAPI) {
+  let currentLanguage = 'unknown';
+  let currentPath = '';
+
   /**
    * Reconstruct state from session entries.
    * This ensures the last detected language is available across session reloads.
@@ -86,6 +89,9 @@ export default function piCoderExtension(pi: ExtensionAPI) {
       }
     }
 
+    currentLanguage = lastDetectedLanguage;
+    currentPath = lastDetectedPath;
+
     return { language: lastDetectedLanguage, path: lastDetectedPath };
   };
 
@@ -96,8 +102,8 @@ export default function piCoderExtension(pi: ExtensionAPI) {
     description:
       'Detect programming language based on file extension and update session context for dynamic skill loading.',
     promptGuidelines: [
-      "MANDATORY — no exceptions: you MUST NOT call `write` or `edit` on any code file until, in the SAME turn, you have (1) called `detect_language` with that file's path, then (2) read the `coding` skill (its content depends on step 1 having run first).",
-      'This is a hard gate, not a suggestion: writing/editing code first and calling `detect_language` afterward as a correction does NOT satisfy this rule — the guidelines must inform the code, not follow it.',
+      'Policy requirement: before calling `write` or `edit` on any code file, call `detect_language` for that file and then read the `coding` skill in the same turn.',
+      'This policy is instruction-level guidance (not a runtime-enforced guard), so treat violations as invalid workflow and restart the step correctly.',
       'If you realize mid-task that you skipped this, STOP. Do not just call the tool retroactively and move on — explicitly discard/redo the write using the now-loaded guidelines.',
       'This applies per file, every time, even if you already did it earlier in the session for a different file.',
     ],
@@ -115,6 +121,8 @@ export default function piCoderExtension(pi: ExtensionAPI) {
     }> {
       const ext = '.' + params.path.split('.').pop()?.toLowerCase();
       const language = LANGUAGE_EXTENSIONS[ext] || 'unknown';
+      currentLanguage = language;
+      currentPath = params.path;
 
       // Store in session as a custom entry so pi-twig can access it
       pi.appendEntry('custom', {
@@ -129,7 +137,9 @@ export default function piCoderExtension(pi: ExtensionAPI) {
         content: [
           {
             type: 'text',
-            text: `Detected language: ${language} for file ${params.path}. Session context updated. You can now read the 'coding' skill to get language-specific guidelines.`,
+            text: `Detected language: ${language} for file ${params.path}. Session context updated${
+              currentPath && currentLanguage !== 'unknown' ? ` (last: ${currentLanguage} @ ${currentPath})` : ''
+            }. You can now read the 'coding' skill to get language-specific guidelines.`,
           },
         ],
         details: {
