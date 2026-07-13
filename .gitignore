@@ -19,3 +19,4 @@ agent/run-history.jsonl
 .env.ai
 .ai.tmp/
 context-mode/
+jscpd/

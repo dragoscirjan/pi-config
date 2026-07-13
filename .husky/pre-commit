@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
-npm run format:fix
+for cmd in format:fix lint:fix; do
+	npm run "$cmd"
+done
+
 git add -A
-npm run lint

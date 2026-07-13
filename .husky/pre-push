@@ -2,5 +2,6 @@
 
 set -euo pipefail
 
-npm run dupcheck
-npm run test
+for cmd in dupcheck test; do
+	npm run "$cmd"
+done

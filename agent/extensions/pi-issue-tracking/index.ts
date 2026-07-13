@@ -145,6 +145,13 @@ function createIssueAtomically(
       }
       const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : '';
       if (code === 'EEXIST') continue;
+
+      try {
+        if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+      } catch {
+        // best-effort cleanup only
+      }
+
       throw error;
     }
   }

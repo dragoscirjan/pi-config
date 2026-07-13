@@ -18,13 +18,25 @@ export function getAuthenticatedProvidersFromAuthJson(): Set<string> {
       const hasApiKey = Boolean(typed.key ?? typed.apiKey);
       const hasOAuthToken = Boolean(typed.access ?? typed.refresh ?? typed.token);
 
-      if ((type === 'api_key' && hasApiKey) || (type === 'oauth' && hasOAuthToken) || hasApiKey || hasOAuthToken) {
-        providers.add(provider);
+      if (type === 'api_key') {
+        if (hasApiKey) providers.add(provider);
+        continue;
       }
+
+      if (type === 'oauth') {
+        if (hasOAuthToken) providers.add(provider);
+        continue;
+      }
+
+      console.warn(
+        `[pi-model-recommend] Ignoring auth entry for provider "${provider}": unsupported or missing type "${type || '<empty>'}". Expected "api_key" or "oauth".`,
+      );
     }
 
     return providers;
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[pi-model-recommend] Failed to parse auth file at ${authPath}: ${message}`);
     return new Set();
   }
 }
