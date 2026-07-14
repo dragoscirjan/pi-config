@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { getAuthenticatedProvidersFromAuthJson } from './auth';
 import { getAllBenchmarks, findBenchmarkForModel } from './benchmarks';
 import { buildModelProfile, buildCostHintIndex, clamp } from './profiles';
 import type { ModelLike } from './types';
@@ -38,8 +37,7 @@ function tokenize(raw: string): string[] {
 
 export type LocalityFilter = 'all' | 'local' | 'commercial';
 
-export function isModelVisibleByProvider(_provider: string, _activeProviders: Set<string>): boolean {
-  // Policy: anything not authenticated is treated as local, so visibility is all-models.
+export function isModelVisibleByProvider(_provider: string): boolean {
   return true;
 }
 
@@ -123,20 +121,18 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
         return;
       }
 
-      const activeProviders = getAuthenticatedProvidersFromAuthJson();
-      const registryModels = ctx.modelRegistry.getAll() as ModelLike[];
+      const registryModels = ctx.modelRegistry.getAvailable() as ModelLike[];
       const costHints = buildCostHintIndex(registryModels);
 
       let rows = registryModels
-        .filter((m) => isModelVisibleByProvider(m.provider, activeProviders))
+        .filter((m) => isModelVisibleByProvider(m.provider))
         .map((m) => {
           const benchmarks = getAllBenchmarks();
           const p = buildModelProfile(m, costHints, findBenchmarkForModel(m.id, benchmarks));
-          const isLocalByPolicy = !activeProviders.has(m.provider);
           const priceNorm = clamp(1 - Math.log1p(Math.max(0, p.effectivePrice)) / Math.log1p(50), 0, 1);
           const score = p.intel * 0.35 + p.reasoning * 0.2 + p.toolReliability * 0.25 + priceNorm * 20;
           const efficiency = p.intel / (p.effectivePrice + 0.01);
-          return { ...p, isLocal: isLocalByPolicy, score, efficiency };
+          return { ...p, isLocal: p.isLocal, score, efficiency };
         });
 
       if (parsed.providers.length > 0)

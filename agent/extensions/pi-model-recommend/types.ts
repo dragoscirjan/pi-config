@@ -1,6 +1,6 @@
-import type { ModelLike as RegistryModelLike } from '@earendil-works/pi-coding-agent';
+import type { Api, Model } from '@earendil-works/pi-ai';
 
-export type ModelLike = RegistryModelLike & { maxTokens?: number };
+export type ModelLike = Model<Api>;
 
 export type ModelProfile = {
   provider: string;
