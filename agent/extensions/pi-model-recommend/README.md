@@ -1,65 +1,103 @@
 # pi-model-recommend
 
-Model ranking and routing extension for Pi.
+Model recommendation and routing extension for Pi.
 
-It registers two commands:
+It exposes two commands and an optional auto-routing hook:
 
-- `/model-recommend` — task-aware ranking + optional auto-routing
-- `/active-models` — snapshot/listing view of available authenticated provider models
+- `/model-recommend`
+- `/active-models`
+- `before_agent_start` routing in suggest/enforce modes
 
-## Entry points
+## Command overview
 
-- `index.ts` — registers both commands.
-- `command-model-recommend.ts` — main recommendation command + `before_agent_start` auto-routing behavior.
-- `command-active-models.ts` — active model inspection command.
+### `/model-recommend`
+
+Task-aware ranking pipeline:
+
+1. parse args/options
+2. ensure config + taxonomy state
+3. analyze intent/capability needs
+4. filter models by authenticated providers + optional filters
+5. run stage-A constraints + relaxation
+6. score + capability guard + learned adjustments
+7. render ranked table (+ explain mode)
+
+Supports router controls (`--set-auto`, `--set-learning`, `--reset-learning`), taxonomy operations (rebuild/import/export/merge), benchmark sync, and status output.
+
+### `/active-models`
+
+Model inventory/triage view for authenticated providers with filtering, sorting, badges, and pricing/intelligence context.
 
 ## Core modules
 
-- `intent.ts` — prompt intent extraction and task complexity scoring.
-- `scoring.ts` — constraint derivation, stage-A filtering, model scoring, capability delta guard.
-- `profiles.ts` — model profile heuristics and benchmark-aware capability estimates.
-- `benchmarks.ts` — leaderboard synchronization with timeout-protected fetch.
-- `learning.ts` — SQLite migrations, pairwise training weights, recommendation adjustments.
-- `taxonomy.ts` — taxonomy state/config load-merge-export helpers.
-- `auth.ts` — strict auth provider filter from `auth.json`.
-- `types.ts` — shared types used by command and modules.
+- `command-model-recommend.ts` — primary command + `before_agent_start` suggest/enforce flow.
+- `command-active-models.ts` — active model listing command.
+- `intent.ts` — tokenization/alias/fuzzy term detection and intent capability profile.
+- `scoring.ts` — constraints, feasible set selection, model scoring, penalty guard.
+- `profiles.ts` — normalized profile estimation (intel/reasoning/reliability/speed/cost/context/locality).
+- `benchmarks.ts` — Aider leaderboard sync + lookup; fetch calls guarded by timeout/abort.
+- `learning.ts` — SQLite schema migrations, weights, samples, learned bias application.
+- `taxonomy.ts` — defaults, config snapshots, live-source enrichment plumbing, import/export/merge helpers.
+- `auth.ts` — strict provider auth filter used by both commands.
+- `types.ts` — shared interfaces across command/modules.
 
-## Runtime data
+## Auth policy (strict)
 
-- DB path: `agent/model-recommend.db`
-- Config path: `agent/model-recommend-config.json`
+Providers are considered active only if `agent/auth.json` entry type and credential shape match:
 
-The database stores router settings, learned pairwise weights, training samples, taxonomy state, and benchmark rows.
+- `type: "api_key"` requires API key fields.
+- `type: "oauth"` requires OAuth token fields.
+- Missing/unsupported `type` is ignored (warned), not auto-inferred.
 
-## Auth behavior (strict)
+This prevents permissive fallback behavior and keeps provider gating deterministic.
 
-`auth.ts` treats provider auth type as authoritative:
+## Data and persistence
 
-- `type: "api_key"` -> provider is usable only when API key fields exist.
-- `type: "oauth"` -> provider is usable only when OAuth token fields exist.
-- Unknown/missing `type` -> provider is ignored with warning.
+- DB: `agent/model-recommend.db`
+- config: `agent/model-recommend-config.json`
 
-Both `/model-recommend` and `/active-models` use this same helper.
+SQLite data includes:
 
-## Commands (high-level)
+- router settings (`router_settings`)
+- pairwise weights (`router_weights`)
+- user training samples (`router_samples`)
+- taxonomy categories/terms (`router_taxonomy_*`)
+- benchmark rows (`model_benchmarks`)
+- migration tracking (`router_migrations`)
 
-`/model-recommend` supports:
+## Auto-routing modes
 
-- strategy and provider filters,
-- local-prefer / local-only toggles,
-- auto-routing mode (`off`, `suggest`, `enforce`),
-- learning reset/toggle,
-- taxonomy import/export/merge/rebuild,
-- benchmark sync and status output.
+Configured through `/model-recommend --set-auto <mode>`:
 
-`/active-models` supports list filtering/sorting by provider, text, price/intelligence thresholds and output limits.
+- `off` — no automatic model change
+- `suggest` — shows ranked picker (with keep/custom paths)
+- `enforce` — switches to top recommendation automatically
+
+When learning is enabled, selections/choices feed pairwise learning and future ranking bias.
+
+## Benchmarks
+
+`benchmarks.ts` synchronizes Aider leaderboard YAML sources and stores edit/refactor pass-rate data locally.
+
+- network calls use `AbortController` timeout
+- sync failures are non-fatal
+- scoring falls back to heuristics when no benchmark hit is available
+
+## Taxonomy + live signals
+
+`taxonomy.ts` provides:
+
+- default taxonomy and config snapshots
+- persisted taxonomy DB IO
+- import/export/merge operations
+- optional live-source enrichment controls from config/runtime flags
 
 ## Development
 
-From this extension directory:
+From `agent/extensions/pi-model-recommend`:
 
 - `npm run lint`
 - `npm run format`
 - `npm run test`
 
-Colocated tests currently cover intent/scoring/learning/taxonomy modules.
+Current colocated tests cover `intent`, `scoring`, `learning`, and `taxonomy` modules.
