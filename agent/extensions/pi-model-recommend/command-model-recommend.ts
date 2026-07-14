@@ -15,6 +15,7 @@ import {
   applyLearnedAdjustments,
 } from './learning';
 import { buildCostHintIndex, buildModelProfile } from './model-profile';
+import { isLocalModel } from './profiles';
 import { deriveConstraints, selectStageAFeasible, scoreModel, applyCapabilityDeltaGuard } from './scoring';
 import {
   TRUSTED_ORGS,
@@ -189,6 +190,7 @@ function parseRecommendArgs(raw: string): RecommendOptions {
         opts.localPrefer = true;
         break;
       case '--local-only':
+      case '--local':
         opts.localOnly = true;
         break;
       case '--limit': {
@@ -229,7 +231,7 @@ async function computeRecommendations(
   const benchmarks = getAllBenchmarks();
   const costHints = buildCostHintIndex(registryModels);
   const activeProviders = getAuthenticatedProvidersFromAuthJson();
-  let models = registryModels.filter((m) => activeProviders.has(m.provider));
+  let models = registryModels.filter((m) => activeProviders.has(m.provider) || isLocalModel(m.provider));
   if (opts.providers.length > 0)
     models = models.filter((m) => opts.providers.some((p) => m.provider.toLowerCase().includes(p)));
   if (opts.localOnly) models = models.filter((m) => buildModelProfile(m).isLocal);
@@ -378,7 +380,7 @@ function usageText(): string {
     `  ${green}--trusted${reset}                              Keep only models from trusted org list`,
     `  ${green}--strategy <cheapest-capable|capability-first|local-first>${reset}`,
     `  ${green}--local-prefer${reset}                         Prefer local models when scores are similar`,
-    `  ${green}--local-only${reset}                           Only local providers/models`,
+    `  ${green}--local, --local-only${reset}                  Only local providers/models`,
     `  ${green}--sort-by <score|intelligence|reasoning|reliability|speed|price|context> [asc|desc]${reset}`,
     `  ${green}--limit <n>${reset}                            Number of models to display`,
     `  ${green}--explain${reset}                              Show per-model score breakdown and reasons`,
@@ -505,8 +507,11 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
       }
 
       const activeProviders = getAuthenticatedProvidersFromAuthJson();
-      if (activeProviders.size === 0) {
-        const msg = 'No authenticated providers found in agent/auth.json';
+      const hasVisibleProviders = ((ctx.modelRegistry.getAll() as ModelLike[]) ?? []).some(
+        (m) => activeProviders.has(m.provider) || isLocalModel(m.provider),
+      );
+      if (!hasVisibleProviders) {
+        const msg = 'No authenticated providers found and no local providers available in registry.';
         if (ctx.hasUI) ctx.ui.notify(msg, 'warning');
         else console.log(msg);
         return;
