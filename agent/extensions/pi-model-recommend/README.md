@@ -5,7 +5,7 @@ Model ranking and routing extension for Pi.
 It registers two commands:
 
 - `/model-recommend` — task-aware ranking + optional auto-routing
-- `/active-models` — snapshot/listing view of available authenticated provider models
+- `/active-models` — snapshot/listing view of available models from authenticated commercial providers plus local providers
 
 ## Entry points
 
@@ -52,7 +52,7 @@ Both `/model-recommend` and `/active-models` use this same helper.
 - taxonomy import/export/merge/rebuild,
 - benchmark sync and status output.
 
-`/active-models` supports list filtering/sorting by provider, text, price/intelligence thresholds and output limits.
+`/active-models` supports list filtering/sorting by provider, text, price/intelligence thresholds, output limits, and locality filtering (`--local` / `--commercial`).
 
 ## Development
 

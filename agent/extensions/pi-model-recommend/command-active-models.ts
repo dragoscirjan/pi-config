@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { getAuthenticatedProvidersFromAuthJson } from './auth';
 import { getAllBenchmarks, findBenchmarkForModel } from './benchmarks';
-import { buildModelProfile, buildCostHintIndex, clamp } from './profiles';
+import { buildModelProfile, buildCostHintIndex, clamp, isLocalModel } from './profiles';
 import type { ModelLike } from './types';
 
 // ANSI styling helpers
@@ -36,6 +36,18 @@ function tokenize(raw: string): string[] {
   });
 }
 
+export type LocalityFilter = 'all' | 'local' | 'commercial';
+
+export function isModelVisibleByProvider(provider: string, activeProviders: Set<string>): boolean {
+  return activeProviders.has(provider) || isLocalModel(provider);
+}
+
+export function applyLocalityFilter<T extends { isLocal: boolean }>(rows: T[], locality: LocalityFilter): T[] {
+  if (locality === 'local') return rows.filter((r) => r.isLocal);
+  if (locality === 'commercial') return rows.filter((r) => !r.isLocal);
+  return rows;
+}
+
 export function registerActiveModelsCommand(pi: ExtensionAPI) {
   pi.registerCommand('active-models', {
     description: 'List and filter active models with capability scoring',
@@ -56,6 +68,8 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
           `  ${green}--max-price <n>${reset}     Max cost per 1M output tokens`,
           `  ${green}--sort-by <field>${reset}   score, intel, price, context, efficiency`,
           `  ${green}--limit, -n <n>${reset}     Max results (default: 10)`,
+          `  ${green}--local${reset}             Show only local providers/models`,
+          `  ${green}--commercial${reset}        Show only non-local providers/models`,
           '',
           `${bold}METRICS:${reset}`,
           `  ${magenta}Score${reset}       Balanced capability weight (0-100)`,
@@ -80,6 +94,7 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
         minIntel: 0,
         maxPrice: Number.POSITIVE_INFINITY,
         limit: 10,
+        locality: 'all' as LocalityFilter,
       };
 
       for (let i = 0; i < tokens.length; i++) {
@@ -96,6 +111,15 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
         } else if (t === '--min-intel') parsed.minIntel = parseFloatSafe(tokens[++i], 0);
         else if (t === '--max-price') parsed.maxPrice = parseFloatSafe(tokens[++i], Number.POSITIVE_INFINITY);
         else if (t === '--limit' || t === '-n') parsed.limit = parseInt(tokens[++i] ?? '10', 10);
+        else if (t === '--local') parsed.locality = 'local';
+        else if (t === '--commercial') parsed.locality = 'commercial';
+      }
+
+      if (tokens.includes('--local') && tokens.includes('--commercial')) {
+        const message = `${yellow}Use only one of --local or --commercial.${reset}`;
+        if (ctx.hasUI) ctx.ui.notify(message, 'warning');
+        else console.warn(message);
+        return;
       }
 
       const activeProviders = getAuthenticatedProvidersFromAuthJson();
@@ -103,7 +127,7 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
       const costHints = buildCostHintIndex(registryModels);
 
       let rows = registryModels
-        .filter((m) => activeProviders.has(m.provider))
+        .filter((m) => isModelVisibleByProvider(m.provider, activeProviders))
         .map((m) => {
           const benchmarks = getAllBenchmarks();
           const p = buildModelProfile(m, costHints, findBenchmarkForModel(m.id, benchmarks));
@@ -117,6 +141,7 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
         rows = rows.filter((r) => parsed.providers.some((p) => r.provider.toLowerCase().includes(p.toLowerCase())));
       if (parsed.grep) rows = rows.filter((r) => `${r.provider}/${r.model}`.toLowerCase().includes(parsed.grep));
       rows = rows.filter((r) => r.intel >= parsed.minIntel && r.costOut <= parsed.maxPrice);
+      rows = applyLocalityFilter(rows, parsed.locality);
 
       rows.sort((a, b) => {
         let cmp = 0;
