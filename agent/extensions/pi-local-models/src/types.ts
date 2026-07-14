@@ -3,6 +3,14 @@ import type { ProviderModelConfig } from '@mariozechner/pi-coding-agent';
 /** Local model backends supported by this extension. */
 export type BackendName = 'lmstudio' | 'ollama' | 'llamacpp' | 'mlx';
 
+/** Provider key mapping config used under `local-models.json.backends.<providerKey>`. */
+export interface ProviderKeyConfig {
+  /** Backend discovery adapter. Defaults to `lmstudio` when omitted. */
+  backend?: BackendName;
+  /** One or more server entries for this provider key. */
+  urls: ServerEntry[];
+}
+
 /** A single server entry for a backend, as configured in `~/.pi/agent/local-models.json`. */
 export interface ServerEntry {
   /** Server label, used in the provider name when multiple servers are configured for a backend. */
@@ -43,12 +51,7 @@ export interface Rule {
 
 /** Full shape of `~/.pi/agent/local-models.json`. */
 export interface LocalModelsConfig {
-  backends: {
-    lmstudio?: BackendConfig;
-    ollama?: BackendConfig;
-    llamacpp?: BackendConfig;
-    mlx?: BackendConfig;
-  };
+  backends: Record<string, ProviderKeyConfig | BackendConfig>;
   rules?: Rule[];
 }
 

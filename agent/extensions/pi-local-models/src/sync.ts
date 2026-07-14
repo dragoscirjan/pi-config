@@ -6,7 +6,14 @@ import { discoverOllamaModels } from './backends/ollama.js';
 import { loadConfig, resolveHeaders } from './config.js';
 import { logWarn } from './log.js';
 import { applyRules } from './rules.js';
-import type { BackendConfig, BackendName, DiscoverModels, ServerEntry } from './types.js';
+import type {
+  BackendConfig,
+  BackendName,
+  DiscoverModels,
+  LocalModelsConfig,
+  ProviderKeyConfig,
+  ServerEntry,
+} from './types.js';
 
 /** Maps each supported backend to its discovery function. */
 const DISCOVER_BY_BACKEND: Record<BackendName, DiscoverModels> = {
@@ -16,29 +23,55 @@ const DISCOVER_BY_BACKEND: Record<BackendName, DiscoverModels> = {
   mlx: discoverMlxModels,
 };
 
-/**
- * Compute the provider name for a server entry, per LLD §6:
- * - Bare `<backend>` when the backend has exactly one server and it has no
- *   explicit `name` (the common single-server case).
- * - `<backend>/<serverName>` otherwise (multiple servers, or an explicitly
- *   named single server).
- */
-function providerNameFor(backend: BackendName, server: ServerEntry, totalServers: number): string {
-  if (totalServers === 1 && !server.name) return backend;
-  return `${backend}/${server.name ?? 'default'}`;
+function isBackendName(value: string): value is BackendName {
+  return value in DISCOVER_BY_BACKEND;
 }
 
 /**
- * Build the flat list of { backend, server, providerName } entries to sync,
- * across all configured backends.
+ * Resolve which backend adapter should be used for a configured provider key.
+ *
+ * Priority:
+ * 1) explicit `backends.<providerKey>.backend` when present and valid,
+ * 2) legacy fixed-key mode where provider key itself is a backend name,
+ * 3) default backend `lmstudio` when backend is omitted.
  */
-function collectServers(backends: {
-  lmstudio?: BackendConfig;
-  ollama?: BackendConfig;
-  llamacpp?: BackendConfig;
-  mlx?: BackendConfig;
-}): Array<{ backend: BackendName; server: ServerEntry; providerName: string }> {
-  const entries: Array<{ backend: BackendName; server: ServerEntry; providerName: string }> = [];
+export function resolveBackendForProviderKey(
+  providerKey: string,
+  config: ProviderKeyConfig | BackendConfig,
+): BackendName {
+  if ('backend' in config && typeof config.backend === 'string' && isBackendName(config.backend)) {
+    return config.backend;
+  }
+  if (isBackendName(providerKey)) {
+    return providerKey;
+  }
+  return 'lmstudio';
+}
+
+/**
+ * Compute the provider name for a server entry:
+ * - Bare `<providerKey>` when the provider key has exactly one server and it
+ *   has no explicit `name`.
+ * - `<providerKey>/<serverName|default>` otherwise.
+ */
+function providerNameFor(providerKey: string, server: ServerEntry, totalServers: number): string {
+  if (totalServers === 1 && !server.name) return providerKey;
+  return `${providerKey}/${server.name ?? 'default'}`;
+}
+
+export interface CollectedServer {
+  providerKey: string;
+  backend: BackendName;
+  server: ServerEntry;
+  providerName: string;
+}
+
+/**
+ * Build the flat list of { providerKey, backend, server, providerName } entries
+ * to sync, across all configured provider keys.
+ */
+export function collectServers(backends: LocalModelsConfig['backends']): CollectedServer[] {
+  const entries: CollectedServer[] = [];
   const seenProviderNames = new Set<string>();
 
   const ensureUniqueProviderName = (candidate: string, server: ServerEntry): string => {
@@ -58,13 +91,14 @@ function collectServers(backends: {
     return next;
   };
 
-  for (const backend of Object.keys(DISCOVER_BY_BACKEND) as BackendName[]) {
-    const config = backends[backend];
+  for (const [providerKey, config] of Object.entries(backends ?? {})) {
     if (!config || !Array.isArray(config.urls) || config.urls.length === 0) continue;
+    const backend = resolveBackendForProviderKey(providerKey, config);
 
     for (const server of config.urls) {
-      const providerName = ensureUniqueProviderName(providerNameFor(backend, server, config.urls.length), server);
+      const providerName = ensureUniqueProviderName(providerNameFor(providerKey, server, config.urls.length), server);
       entries.push({
+        providerKey,
         backend,
         server,
         providerName,
@@ -98,10 +132,10 @@ export function createSyncProviders(pi: ExtensionAPI): SyncProviders {
     const servers = collectServers(config.backends);
 
     const results = await Promise.allSettled(
-      servers.map(async ({ backend, server, providerName }) => {
+      servers.map(async ({ providerKey, backend, server, providerName }) => {
         const discover = DISCOVER_BY_BACKEND[backend];
         const models = await discover(server);
-        return { backend, providerName, server, models };
+        return { providerKey, backend, providerName, server, models };
       }),
     );
 
@@ -110,10 +144,10 @@ export function createSyncProviders(pi: ExtensionAPI): SyncProviders {
 
     for (const result of results) {
       if (result.status !== 'fulfilled') continue;
-      const { backend, providerName, server, models } = result.value;
+      const { providerKey, backend, providerName, server, models } = result.value;
       if (models.length === 0) continue;
 
-      const providerModels = models.map((model) => applyRules(model, rules, providerName));
+      const providerModels = models.map((model) => applyRules(model, rules, providerKey));
       const headers = resolveHeaders(server.headers);
 
       const providerConfig: ProviderConfig = {
