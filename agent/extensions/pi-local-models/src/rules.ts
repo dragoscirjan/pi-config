@@ -13,23 +13,33 @@ const PI_DEFAULT_INPUT: ('text' | 'image')[] = ['text'];
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 /**
- * Apply the global `rules[]` list to a single discovered model, cascading
- * matches in array order (later rules override fields set by earlier ones
- * and by auto-detection), then fill in Pi's own defaults for any field
- * still unset. Rule overrides always win over auto-detected values, since
- * rules represent explicit user intent.
+ * Apply `rules[]` to a single discovered model.
+ *
+ * Precedence model:
+ * 1) global rules (without `providerKey`) in declaration order
+ * 2) provider-scoped rules (matching current `providerKey`) in declaration order
+ *
+ * Later matches override earlier matches and backend auto-detected values,
+ * then Pi defaults are filled for any remaining unset fields.
  *
  * Match target is both `id` and `displayName` (OR match), regex is
  * case-insensitive.
  */
-export function applyRules(model: NormalizedModel, rules: Rule[]): ProviderModelConfig {
+export function applyRules(model: NormalizedModel, rules: Rule[], providerKey?: string): ProviderModelConfig {
   let contextWindow = model.contextWindow;
   let maxTokens = model.maxTokens;
   let reasoning = model.reasoning;
 
-  for (const rule of rules) {
-    const matches = ruleMatches(rule, model);
-    if (!matches) continue;
+  const normalizedProviderKey = typeof providerKey === 'string' ? providerKey.trim() : '';
+  const hasScopedProvider = normalizedProviderKey.length > 0;
+
+  const globalRules = rules.filter((rule) => !rule.providerKey);
+  const scopedRules = hasScopedProvider
+    ? rules.filter((rule) => typeof rule.providerKey === 'string' && rule.providerKey === normalizedProviderKey)
+    : [];
+
+  for (const rule of [...globalRules, ...scopedRules]) {
+    if (!ruleMatches(rule, model)) continue;
     if (rule.options.contextWindow !== undefined) contextWindow = rule.options.contextWindow;
     if (rule.options.maxTokens !== undefined) maxTokens = rule.options.maxTokens;
     if (rule.options.reasoning !== undefined) reasoning = rule.options.reasoning;

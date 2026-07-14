@@ -16,5 +16,38 @@
       ]
     }
   },
-  "rules": []
+  "rules": [
+    {
+      "match": "north-mini-code-1.0",
+      "type": "string",
+      "providerKey": "lmstudio",
+      "options": {
+        "contextWindow": 480000
+      }
+    },
+    {
+      "match": "qwen/qwen3.6-27b",
+      "type": "string",
+      "providerKey": "lmstudio",
+      "options": {
+        "contextWindow": 220000
+      }
+    },
+    {
+      "match": "google/gemma-4-31b",
+      "type": "string",
+      "providerKey": "lmstudio",
+      "options": {
+        "contextWindow": 220000
+      }
+    },
+    {
+      "match": "qwen/qwen3-coder-30b",
+      "type": "string",
+      "providerKey": "lmstudio",
+      "options": {
+        "contextWindow": 220000
+      }
+    }
+  ]
 }

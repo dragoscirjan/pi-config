@@ -113,7 +113,7 @@ export function createSyncProviders(pi: ExtensionAPI): SyncProviders {
       const { backend, providerName, server, models } = result.value;
       if (models.length === 0) continue;
 
-      const providerModels = models.map((model) => applyRules(model, rules));
+      const providerModels = models.map((model) => applyRules(model, rules, providerName));
       const headers = resolveHeaders(server.headers);
 
       const providerConfig: ProviderConfig = {
