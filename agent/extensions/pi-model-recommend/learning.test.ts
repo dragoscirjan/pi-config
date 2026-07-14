@@ -6,7 +6,7 @@ import type { Intent, RecommendConfig, ScoredModel } from './types';
 
 async function loadLearningWithTempAgentDir(tempAgentDir: string): Promise<typeof import('./learning')> {
   vi.resetModules();
-  vi.doMock('@mariozechner/pi-coding-agent', () => ({
+  vi.doMock('@earendil-works/pi-coding-agent', () => ({
     getAgentDir: () => tempAgentDir,
   }));
   return await import('./learning');

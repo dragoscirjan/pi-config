@@ -16,10 +16,11 @@
   "author": "",
   "license": "MIT",
   "type": "module",
-  "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.27.4"
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.85.1",
     "@types/node": "^26.1.0",
     "typescript": "^6.0.3"
   }

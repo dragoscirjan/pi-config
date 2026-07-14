@@ -3,6 +3,10 @@ node_modules/
 # Pi agent runtime state / secrets
 agent/sessions/
 agent/auth.json
+agent/mcp.json
+agent/models-store.json
+agent/telegram.json
+agent/trust.json
 agent/mcp-cache.json
 agent/mcp-npx-cache.json
 agent/mcp-oauth/
@@ -20,3 +24,4 @@ agent/run-history.jsonl
 .ai.tmp/
 context-mode/
 jscpd/
+agent/missions

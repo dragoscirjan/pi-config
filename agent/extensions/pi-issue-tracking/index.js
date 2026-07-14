@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { StringEnum } from '@mariozechner/pi-ai';
+import { StringEnum } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 const TYPE_EMOTICONS = {
   initiative: '🚀',

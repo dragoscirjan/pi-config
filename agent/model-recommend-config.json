@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastUpdated": "2026-07-10T22:07:51.055Z",
+  "lastUpdated": "2026-09-13T05:34:11.128Z",
   "aliases": {
     "elyxir": [
       "elixir"
@@ -75,8 +75,6 @@
     "sourceWeights": {
       "stack_overflow": 1,
       "stackexchange_network": 0.9,
-      "github_topics": 0.95,
-      "github_trending": 0.9,
       "reddit": 0.7,
       "hackernews": 0.85,
       "lobsters": 0.75,

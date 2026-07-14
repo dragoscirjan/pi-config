@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from '@mariozechner/pi-coding-agent';
+import type { ProviderModelConfig } from '@earendil-works/pi-coding-agent';
 
 /** Local model backends supported by this extension. */
 export type BackendName = 'lmstudio' | 'ollama' | 'llamacpp' | 'mlx';
@@ -27,6 +27,13 @@ export interface Rule {
   /** Regex pattern or literal string, interpreted per `type`. */
   match: string;
   type: 'regex' | 'string';
+  /**
+   * Optional provider key scope.
+   *
+   * - Omitted => global rule (applies to all providers)
+   * - Set => rule applies only when the current provider key matches exactly
+   */
+  providerKey?: string;
   options: {
     contextWindow?: number;
     maxTokens?: number;

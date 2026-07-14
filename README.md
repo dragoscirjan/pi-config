@@ -6,7 +6,7 @@ Practical Pi agent setup with local extensions for:
 - local model provider discovery,
 - model recommendation and auto-routing,
 - filesystem issue tracking,
-- Twig-based runtime skill rendering.
+- context-aware MCP memory tooling.
 
 ## Repository layout
 
@@ -18,8 +18,10 @@ Practical Pi agent setup with local extensions for:
 
 ## Active external packages (from `agent/settings.json`)
 
-- `npm:pi-subagents`
-- `npm:pi-mcp-adapter`
+- `npm:pi-subagents@0.66.0`
+- `npm:pi-mcp-adapter@2.32.1`
+- `npm:@juicesharp/rpiv-ask-user-question@2.9.0`
+- `git:github.com/badlogic/pi-telegram`
 
 ## Local extensions
 
@@ -29,7 +31,6 @@ Practical Pi agent setup with local extensions for:
 | `pi-local-models`    | [`agent/extensions/pi-local-models`](agent/extensions/pi-local-models/README.md)       | Discovers local backends (LM Studio/Ollama/llama.cpp/MLX) and registers providers.               |
 | `pi-model-recommend` | [`agent/extensions/pi-model-recommend`](agent/extensions/pi-model-recommend/README.md) | `/model-recommend` and `/active-models` commands with learning + taxonomy logic.                 |
 | `pi-issue-tracking`  | [`agent/extensions/pi-issue-tracking`](agent/extensions/pi-issue-tracking/README.md)   | Filesystem issue management tools (`issue_create`, `issue_list`, `issue_read`, `issue_comment`). |
-| `pi-twig`            | [`agent/extensions/pi-twig`](agent/extensions/pi-twig/README.md)                       | Compiles `*.md.twig` skill templates and overrides skill reads with rendered content.            |
 
 ## Shared quality tooling
 
@@ -53,9 +54,9 @@ Extension-level scripts are standardized across extension packages (`lint`, `for
 - `agent/local-models.json` — backend server list + optional model annotation rules for `pi-local-models`.
 - `agent/model-recommend.db` — SQLite state for `pi-model-recommend` (settings, weights, samples, taxonomy, benchmarks).
 - `agent/model-recommend-config.json` — scoring/taxonomy tuning for `pi-model-recommend`.
-- `pi-twig.json` — optional Twig render context values used by `pi-twig`.
 
 ## Notes
 
-- This repository currently has **no `agent/mcp.json`** file checked in.
+- Machine-specific runtime files such as `agent/mcp.json`, `agent/telegram.json`, `agent/trust.json`, and `agent/models-store.json` are ignored and must not be committed.
+- `setup.sh` installs context-mode and registers its `memory_context` MCP server in the local `agent/mcp.json`.
 - Some generated artifacts under `tmp/` are produced by local quality hooks/tools (for example jscpd HTML output).

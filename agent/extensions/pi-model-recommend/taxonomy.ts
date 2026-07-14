@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { getAgentDir } from '@mariozechner/pi-coding-agent';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { getRouterDb } from './learning';
 import { clamp } from './profiles';
 import type { Taxonomy, RecommendConfig, TaxonomyState } from './types';
@@ -83,8 +83,8 @@ export const DEFAULT_CONFIG: RecommendConfig = {
     sourceWeights: {
       stack_overflow: 1,
       stackexchange_network: 0.9,
-      github_topics: 0.95,
-      github_trending: 0.9,
+      // github_topics: 0.95,
+      // github_trending: 0.9,
       reddit: 0.7,
       hackernews: 0.85,
       lobsters: 0.75,

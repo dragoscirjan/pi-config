@@ -5,7 +5,6 @@
     "agent/extensions/pi-issue-tracking",
     "agent/extensions/pi-local-models",
     "agent/extensions/pi-model-recommend",
-    "agent/extensions/pi-twig",
     "agent/npm"
   ],
   "scripts": {

@@ -1,56 +1,213 @@
 # pi-local-models
 
-Local provider discovery/sync extension for Pi.
+`pi-local-models` discovers models from local inference servers and registers them as Pi providers.
 
-It discovers models from configured local backends and registers them as Pi providers.
+It is designed for mixed local stacks and normalizes backend differences behind one provider sync pipeline.
 
-## Supported backends
+## Backends supported
 
-- LM Studio
-- Ollama
-- llama.cpp
-- MLX
+- `lmstudio`
+- `ollama`
+- `llamacpp`
+- `mlx`
 
-## Configuration
+Backends are discovered independently, then merged into a single provider set via set-diff reconciliation (register current, unregister stale).
 
-Main config file: `agent/local-models.json`
+## Config file
 
-Minimal example:
+Path resolution follows Pi profile semantics:
+
+- `PI_CODING_AGENT_DIR/local-models.json` if `PI_CODING_AGENT_DIR` is set
+- otherwise `~/.pi/agent/local-models.json`
+
+Example:
 
 ```json
 {
   "backends": {
-    "lmstudio": { "urls": [{ "url": "http://127.0.0.1:1234" }] },
-    "ollama": { "urls": [{ "url": "http://127.0.0.1:11434" }] },
-    "llamacpp": { "urls": [{ "url": "http://127.0.0.1:8080" }] }
+    "lmstudio": {
+      "urls": [{ "url": "http://127.0.0.1:1234" }]
+    },
+    "ollama": {
+      "urls": [{ "url": "http://127.0.0.1:11434" }]
+    },
+    "llamacpp": {
+      "urls": [{ "url": "http://127.0.0.1:8080", "name": "gpu-a" }]
+    },
+    "mlx": {
+      "urls": [{ "url": "http://127.0.0.1:8000", "headers": ["Authorization: Bearer $MLX_TOKEN"] }]
+    }
   },
-  "rules": []
+  "rules": [
+    {
+      "type": "regex",
+      "match": "(qwen|deepseek).*(coder|instruct)",
+      "options": { "reasoning": true, "contextWindow": 131072 }
+    },
+    {
+      "type": "string",
+      "match": ":7b",
+      "options": { "maxTokens": 8192 }
+    }
+  ]
 }
 ```
 
-### Rules
+## Discovery behavior by backend
 
-Rule matching supports model id/display-name patterns (string/regex) and can annotate discovered models (for example context window, reasoning flag, max tokens) where backend metadata is incomplete.
+### LM Studio
 
-### Env interpolation
+- Endpoint: `GET /api/v1/models`
+- Uses native LM Studio fields:
+  - context from `loaded_instances[0].config.context_length` (fallback `max_context_length`)
+  - reasoning/vision from capability metadata
+- Also used for loaded-model checks on request hot path.
 
-Header/config values support embedded interpolation:
+### Ollama
+
+- Endpoints:
+  - `GET /api/tags` (model list)
+  - `POST /api/show` (per-model metadata)
+- Adds payload-shape guards before parsing tags payload.
+- Extracts context length from family-specific or `*.context_length` keys when present.
+
+### llama.cpp
+
+- Endpoints:
+  - `GET /v1/models`
+  - `GET /props`
+- Applies `props.default_generation_settings.n_ctx` context across discovered model ids.
+
+### MLX
+
+- Endpoint: `GET /v1/models`
+- Only id-level metadata is usually available.
+- This backend commonly relies on `rules[]` to provide `contextWindow`, `maxTokens`, and `reasoning` annotations.
+
+All backend discovery calls are timeout-bound and fail gracefully (return empty list for that backend/server instead of crashing extension init).
+
+## Rule engine (important)
+
+Rules are applied in-order to each discovered model.
+
+Rule scope supports both global and provider-key-specific behavior:
+
+- `providerKey` omitted -> global rule (all providers)
+- `providerKey` set -> only applies to that exact provider key
+
+Precedence is always:
+
+1. global matches (declaration order)
+2. provider-scoped matches for the current provider key (declaration order)
+
+This lets you define baseline capability annotations globally, then override for specific machines/providers.
+
+- Match target: **both** `id` and `displayName` (OR semantics).
+- Rule types:
+  - `regex` (case-insensitive)
+  - `string` (substring contains)
+- Cascade behavior: later rules override fields from earlier rules.
+- Precedence: explicit rule values override backend auto-detected values.
+
+Rule options currently supported:
+
+- `contextWindow`
+- `maxTokens`
+- `reasoning`
+
+### Provider-key examples
+
+```json
+{
+  "rules": [
+    {
+      "type": "regex",
+      "match": "(qwen|deepseek).*(coder|instruct)",
+      "options": { "reasoning": true, "contextWindow": 131072 }
+    },
+    {
+      "providerKey": "lmstudio/gpu-a",
+      "type": "string",
+      "match": "qwen2.5-coder:32b",
+      "options": { "maxTokens": 32768 }
+    },
+    {
+      "providerKey": "ollama/remote-b",
+      "type": "string",
+      "match": ":7b",
+      "options": { "maxTokens": 4096 }
+    }
+  ]
+}
+```
+
+In this example:
+
+- global reasoning/context defaults apply everywhere,
+- `lmstudio/gpu-a` gets a larger `maxTokens` override for one model,
+- `ollama/remote-b` applies a tighter cap for `:7b` variants.
+
+If still unset after discovery + rules, Pi-compatible defaults are applied:
+
+- `contextWindow: 128000`
+- `maxTokens: 16384`
+- `reasoning: false`
+- `input: ["text"]` (or `['text','image']` if backend reports vision)
+
+## Headers and env interpolation
+
+Per-server header lines (`"Name: Value"`) are converted to provider headers.
+
+Supported interpolation in header values:
 
 - `$VAR`
 - `${VAR}`
-- `$$` (literal `$`)
+- `$$` -> literal `$`
 
-## Runtime behavior
+Invalid header lines (missing `:` or empty name) are skipped with warnings.
 
-- Performs startup sync so providers are available immediately.
-- Re-syncs on session lifecycle events (`session_start`, `message_end` per cycle).
-- Handles provider name collisions by suffixing (`~2`, `~3`, ...).
-- For LM Studio requests, checks model loaded state and shows `⏳ loading model…` when needed.
-  - Includes short TTL cache + in-flight dedupe for loaded-state checks.
+## Provider naming and collision handling
+
+Provider naming policy:
+
+- single unnamed server for a backend -> `<backend>`
+- otherwise -> `<backend>/<serverName|default>`
+
+If two servers resolve to same provider name, suffixes are appended automatically:
+
+- `name`, `name~2`, `name~3`, ...
+
+## Lifecycle and sync strategy
+
+- Initial silent sync at extension load (covers non-interactive listing paths).
+- `session_start`: notifier is attached to `ctx.ui.notify`; sync runs with visible warnings.
+- `agent_start`: resets cycle gate.
+- `message_end` (assistant only): one silent re-sync per turn.
+
+Internally, sync uses set-diff reconciliation:
+
+- registers all currently discovered providers,
+- unregisters providers missing from current cycle.
+
+## LM Studio loaded-state UX
+
+On `before_provider_request`, for LM Studio providers only:
+
+- checks whether selected model is loaded,
+- if not loaded, sets working message `⏳ loading model…`.
+
+Optimization:
+
+- short TTL cache (5s)
+- in-flight promise deduplication per `serverUrl::modelId`
+
+After response (`after_provider_response`), working message is cleared.
+
+The underlying loaded check is fail-open: on timeout/error it assumes "loaded" to avoid misleading perpetual loading indicators.
 
 ## Development
 
-From this extension directory:
+From `agent/extensions/pi-local-models`:
 
 - `npm run lint`
 - `npm run format`
