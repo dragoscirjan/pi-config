@@ -1,4 +1,4 @@
-import type { ModelLike as RegistryModelLike } from '@mariozechner/pi-coding-agent';
+import type { ModelLike as RegistryModelLike } from '@earendil-works/pi-coding-agent';
 
 export type ModelLike = RegistryModelLike & { maxTokens?: number };
 

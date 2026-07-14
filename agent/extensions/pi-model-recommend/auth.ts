@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getAgentDir } from '@mariozechner/pi-coding-agent';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 
 export function getAuthenticatedProvidersFromAuthJson(): Set<string> {
   const authPath = join(getAgentDir(), 'auth.json');

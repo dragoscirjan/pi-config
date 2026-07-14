@@ -13,7 +13,7 @@ import {
 
 async function loadTaxonomyWithTempAgentDir(tempAgentDir: string): Promise<typeof import('./taxonomy')> {
   vi.resetModules();
-  vi.doMock('@mariozechner/pi-coding-agent', () => ({
+  vi.doMock('@earendil-works/pi-coding-agent', () => ({
     getAgentDir: () => tempAgentDir,
   }));
   return await import('./taxonomy');
