@@ -30,8 +30,13 @@ export function applyRules(model: NormalizedModel, rules: Rule[], providerKey?: 
   let maxTokens = model.maxTokens;
   let reasoning = model.reasoning;
 
+  const normalizedProviderKey = typeof providerKey === 'string' ? providerKey.trim() : '';
+  const hasScopedProvider = normalizedProviderKey.length > 0;
+
   const globalRules = rules.filter((rule) => !rule.providerKey);
-  const scopedRules = rules.filter((rule) => rule.providerKey === providerKey);
+  const scopedRules = hasScopedProvider
+    ? rules.filter((rule) => typeof rule.providerKey === 'string' && rule.providerKey === normalizedProviderKey)
+    : [];
 
   for (const rule of [...globalRules, ...scopedRules]) {
     if (!ruleMatches(rule, model)) continue;

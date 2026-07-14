@@ -66,4 +66,27 @@ describe('applyRules', () => {
     const result = applyRules(baseModel, rules, 'ollama/remote-a');
     expect(result.maxTokens).toBe(4096);
   });
+
+  it('does not re-apply global rules when providerKey is omitted', () => {
+    const originalConsoleError = console.error;
+    const errors: string[] = [];
+    console.error = (message?: unknown) => {
+      errors.push(String(message ?? ''));
+    };
+
+    try {
+      const rules: Rule[] = [
+        {
+          type: 'regex',
+          match: '(',
+          options: { maxTokens: 8192 },
+        },
+      ];
+
+      applyRules(baseModel, rules);
+      expect(errors).toHaveLength(1);
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
 });
