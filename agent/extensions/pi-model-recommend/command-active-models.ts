@@ -1,5 +1,4 @@
-import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
-import { getAuthenticatedProvidersFromAuthJson } from './auth';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { getAllBenchmarks, findBenchmarkForModel } from './benchmarks';
 import { buildModelProfile, buildCostHintIndex, clamp } from './profiles';
 import type { ModelLike } from './types';
@@ -36,6 +35,18 @@ function tokenize(raw: string): string[] {
   });
 }
 
+export type LocalityFilter = 'all' | 'local' | 'commercial';
+
+export function isModelVisibleByProvider(_provider: string): boolean {
+  return true;
+}
+
+export function applyLocalityFilter<T extends { isLocal: boolean }>(rows: T[], locality: LocalityFilter): T[] {
+  if (locality === 'local') return rows.filter((r) => r.isLocal);
+  if (locality === 'commercial') return rows.filter((r) => !r.isLocal);
+  return rows;
+}
+
 export function registerActiveModelsCommand(pi: ExtensionAPI) {
   pi.registerCommand('active-models', {
     description: 'List and filter active models with capability scoring',
@@ -56,6 +67,8 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
           `  ${green}--max-price <n>${reset}     Max cost per 1M output tokens`,
           `  ${green}--sort-by <field>${reset}   score, intel, price, context, efficiency`,
           `  ${green}--limit, -n <n>${reset}     Max results (default: 10)`,
+          `  ${green}--local${reset}             Show only local providers/models`,
+          `  ${green}--commercial${reset}        Show only non-local providers/models`,
           '',
           `${bold}METRICS:${reset}`,
           `  ${magenta}Score${reset}       Balanced capability weight (0-100)`,
@@ -80,6 +93,7 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
         minIntel: 0,
         maxPrice: Number.POSITIVE_INFINITY,
         limit: 10,
+        locality: 'all' as LocalityFilter,
       };
 
       for (let i = 0; i < tokens.length; i++) {
@@ -96,27 +110,36 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
         } else if (t === '--min-intel') parsed.minIntel = parseFloatSafe(tokens[++i], 0);
         else if (t === '--max-price') parsed.maxPrice = parseFloatSafe(tokens[++i], Number.POSITIVE_INFINITY);
         else if (t === '--limit' || t === '-n') parsed.limit = parseInt(tokens[++i] ?? '10', 10);
+        else if (t === '--local') parsed.locality = 'local';
+        else if (t === '--commercial') parsed.locality = 'commercial';
       }
 
-      const activeProviders = getAuthenticatedProvidersFromAuthJson();
-      const registryModels = ctx.modelRegistry.getAll() as ModelLike[];
+      if (tokens.includes('--local') && tokens.includes('--commercial')) {
+        const message = `${yellow}Use only one of --local or --commercial.${reset}`;
+        if (ctx.hasUI) ctx.ui.notify(message, 'warning');
+        else console.warn(message);
+        return;
+      }
+
+      const registryModels = ctx.modelRegistry.getAvailable() as ModelLike[];
       const costHints = buildCostHintIndex(registryModels);
 
       let rows = registryModels
-        .filter((m) => activeProviders.has(m.provider))
+        .filter((m) => isModelVisibleByProvider(m.provider))
         .map((m) => {
           const benchmarks = getAllBenchmarks();
           const p = buildModelProfile(m, costHints, findBenchmarkForModel(m.id, benchmarks));
           const priceNorm = clamp(1 - Math.log1p(Math.max(0, p.effectivePrice)) / Math.log1p(50), 0, 1);
           const score = p.intel * 0.35 + p.reasoning * 0.2 + p.toolReliability * 0.25 + priceNorm * 20;
           const efficiency = p.intel / (p.effectivePrice + 0.01);
-          return { ...p, score, efficiency };
+          return { ...p, isLocal: p.isLocal, score, efficiency };
         });
 
       if (parsed.providers.length > 0)
         rows = rows.filter((r) => parsed.providers.some((p) => r.provider.toLowerCase().includes(p.toLowerCase())));
       if (parsed.grep) rows = rows.filter((r) => `${r.provider}/${r.model}`.toLowerCase().includes(parsed.grep));
       rows = rows.filter((r) => r.intel >= parsed.minIntel && r.costOut <= parsed.maxPrice);
+      rows = applyLocalityFilter(rows, parsed.locality);
 
       rows.sort((a, b) => {
         let cmp = 0;

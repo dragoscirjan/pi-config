@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@mariozechner/pi-ai';
-import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { Type } from 'typebox';
 
 type IssueType = 'initiative' | 'epic' | 'story' | 'task' | 'bug';

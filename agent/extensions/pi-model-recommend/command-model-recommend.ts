@@ -1,7 +1,6 @@
 import { writeFileSync } from 'node:fs';
-import { type ExtensionAPI, DynamicBorder } from '@mariozechner/pi-coding-agent';
-import { Container, type SelectItem, SelectList, Input, Text, Key, matchesKey } from '@mariozechner/pi-tui';
-import { getAuthenticatedProvidersFromAuthJson } from './auth';
+import { type ExtensionAPI, DynamicBorder } from '@earendil-works/pi-coding-agent';
+import { Container, type SelectItem, SelectList, Input, Text, Key, matchesKey } from '@earendil-works/pi-tui';
 import { syncBenchmarks, getAllBenchmarks, findBenchmarkForModel } from './benchmarks';
 import { analyzeIntent } from './intent';
 import {
@@ -15,6 +14,7 @@ import {
   applyLearnedAdjustments,
 } from './learning';
 import { buildCostHintIndex, buildModelProfile } from './model-profile';
+import { isLocalModel } from './profiles';
 import { deriveConstraints, selectStageAFeasible, scoreModel, applyCapabilityDeltaGuard } from './scoring';
 import {
   TRUSTED_ORGS,
@@ -189,6 +189,7 @@ function parseRecommendArgs(raw: string): RecommendOptions {
         opts.localPrefer = true;
         break;
       case '--local-only':
+      case '--local':
         opts.localOnly = true;
         break;
       case '--limit': {
@@ -213,7 +214,7 @@ function isTrustedAuthor(modelId: string): boolean {
 async function computeRecommendations(
   task: string,
   opts: RecommendOptions,
-  ctx: { modelRegistry: { getAll(): unknown[] } },
+  ctx: { modelRegistry: { getAvailable(): unknown[] } },
   config: RecommendConfig,
   includeNearMissFill = false,
 ): Promise<{
@@ -225,14 +226,13 @@ async function computeRecommendations(
 }> {
   const taxState = await ensureTaxonomy(opts.rebuildTaxonomy, opts.liveTaxonomy, config, opts.liveSourcesArg);
   const intent = analyzeIntent(task, taxState.taxonomy, config);
-  const registryModels = ctx.modelRegistry.getAll() as ModelLike[];
+  const registryModels = ctx.modelRegistry.getAvailable() as ModelLike[];
   const benchmarks = getAllBenchmarks();
   const costHints = buildCostHintIndex(registryModels);
-  const activeProviders = getAuthenticatedProvidersFromAuthJson();
-  let models = registryModels.filter((m) => activeProviders.has(m.provider));
+  let models = registryModels;
   if (opts.providers.length > 0)
     models = models.filter((m) => opts.providers.some((p) => m.provider.toLowerCase().includes(p)));
-  if (opts.localOnly) models = models.filter((m) => buildModelProfile(m).isLocal);
+  if (opts.localOnly) models = models.filter((m) => isLocalModel(m.provider));
   if (opts.grep)
     models = models.filter((m) => `${m.provider}/${m.id}`.toLowerCase().includes(opts.grep!.toLowerCase()));
 
@@ -378,7 +378,7 @@ function usageText(): string {
     `  ${green}--trusted${reset}                              Keep only models from trusted org list`,
     `  ${green}--strategy <cheapest-capable|capability-first|local-first>${reset}`,
     `  ${green}--local-prefer${reset}                         Prefer local models when scores are similar`,
-    `  ${green}--local-only${reset}                           Only local providers/models`,
+    `  ${green}--local, --local-only${reset}                  Only local providers/models`,
     `  ${green}--sort-by <score|intelligence|reasoning|reliability|speed|price|context> [asc|desc]${reset}`,
     `  ${green}--limit <n>${reset}                            Number of models to display`,
     `  ${green}--explain${reset}                              Show per-model score breakdown and reasons`,
@@ -403,7 +403,7 @@ function findModelFromInput(input: string, registryModels: ModelLike[]): ModelLi
 }
 
 async function setCurrentModel(pi: ExtensionAPI, ctx: any, selected: ScoredModel): Promise<boolean> {
-  const model = (ctx.modelRegistry.getAll() as ModelLike[]).find(
+  const model = (ctx.modelRegistry.getAvailable() as ModelLike[]).find(
     (m) => m.provider === selected.provider && m.id === selected.model,
   );
   if (!model) return false;
@@ -504,9 +504,9 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
         return;
       }
 
-      const activeProviders = getAuthenticatedProvidersFromAuthJson();
-      if (activeProviders.size === 0) {
-        const msg = 'No authenticated providers found in agent/auth.json';
+      const hasVisibleProviders = ((ctx.modelRegistry.getAvailable() as ModelLike[]) ?? []).length > 0;
+      if (!hasVisibleProviders) {
+        const msg = 'No models available in registry.';
         if (ctx.hasUI) ctx.ui.notify(msg, 'warning');
         else console.log(msg);
         return;
@@ -785,7 +785,7 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
         },
       );
       if (!customId) return;
-      const found = findModelFromInput(customId, (ctx as any).modelRegistry.getAll() as any);
+      const found = findModelFromInput(customId, (ctx as any).modelRegistry.getAvailable() as any);
       if (!found) {
         (ctx as any).ui.notify(`Model not found in registry: ${customId}`, 'warning');
         return;

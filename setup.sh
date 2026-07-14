@@ -86,7 +86,7 @@ module_context_mode() {
   mkdir -p "${PI_EXT_DIR}"
 
   cat << 'EOF' > "${PI_EXT_DIR}/index.ts"
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 
