@@ -7,7 +7,7 @@
         }
       ]
     },
-    "lmstud5o": {
+    "lmstudio/m5": {
       "urls": [
         {
           "url": "http://192.168.86.38:1234"
@@ -17,6 +17,7 @@
     "ollama": {
       "urls": [
         {
+          "backend": "ollama",
           "url": "http://127.0.0.1:11434"
         }
       ]
@@ -24,6 +25,7 @@
     "llamacpp": {
       "urls": [
         {
+          "backend": "llamacpp",
           "url": "http://127.0.0.1:8080"
         }
       ]

@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { getAuthenticatedProvidersFromAuthJson } from './auth';
 import { getAllBenchmarks, findBenchmarkForModel } from './benchmarks';
-import { buildModelProfile, buildCostHintIndex, clamp, isLocalModel } from './profiles';
+import { buildModelProfile, buildCostHintIndex, clamp } from './profiles';
 import type { ModelLike } from './types';
 
 // ANSI styling helpers
@@ -38,8 +38,9 @@ function tokenize(raw: string): string[] {
 
 export type LocalityFilter = 'all' | 'local' | 'commercial';
 
-export function isModelVisibleByProvider(provider: string, activeProviders: Set<string>): boolean {
-  return activeProviders.has(provider) || isLocalModel(provider);
+export function isModelVisibleByProvider(_provider: string, _activeProviders: Set<string>): boolean {
+  // Policy: anything not authenticated is treated as local, so visibility is all-models.
+  return true;
 }
 
 export function applyLocalityFilter<T extends { isLocal: boolean }>(rows: T[], locality: LocalityFilter): T[] {
@@ -131,10 +132,11 @@ export function registerActiveModelsCommand(pi: ExtensionAPI) {
         .map((m) => {
           const benchmarks = getAllBenchmarks();
           const p = buildModelProfile(m, costHints, findBenchmarkForModel(m.id, benchmarks));
+          const isLocalByPolicy = !activeProviders.has(m.provider);
           const priceNorm = clamp(1 - Math.log1p(Math.max(0, p.effectivePrice)) / Math.log1p(50), 0, 1);
           const score = p.intel * 0.35 + p.reasoning * 0.2 + p.toolReliability * 0.25 + priceNorm * 20;
           const efficiency = p.intel / (p.effectivePrice + 0.01);
-          return { ...p, score, efficiency };
+          return { ...p, isLocal: isLocalByPolicy, score, efficiency };
         });
 
       if (parsed.providers.length > 0)

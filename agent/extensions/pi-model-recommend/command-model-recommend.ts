@@ -15,7 +15,6 @@ import {
   applyLearnedAdjustments,
 } from './learning';
 import { buildCostHintIndex, buildModelProfile } from './model-profile';
-import { isLocalModel } from './profiles';
 import { deriveConstraints, selectStageAFeasible, scoreModel, applyCapabilityDeltaGuard } from './scoring';
 import {
   TRUSTED_ORGS,
@@ -231,10 +230,10 @@ async function computeRecommendations(
   const benchmarks = getAllBenchmarks();
   const costHints = buildCostHintIndex(registryModels);
   const activeProviders = getAuthenticatedProvidersFromAuthJson();
-  let models = registryModels.filter((m) => activeProviders.has(m.provider) || isLocalModel(m.provider));
+  let models = registryModels;
   if (opts.providers.length > 0)
     models = models.filter((m) => opts.providers.some((p) => m.provider.toLowerCase().includes(p)));
-  if (opts.localOnly) models = models.filter((m) => buildModelProfile(m).isLocal);
+  if (opts.localOnly) models = models.filter((m) => !activeProviders.has(m.provider));
   if (opts.grep)
     models = models.filter((m) => `${m.provider}/${m.id}`.toLowerCase().includes(opts.grep!.toLowerCase()));
 
@@ -255,7 +254,7 @@ async function computeRecommendations(
         priceEstimated: p.priceEstimated,
         contextWindow: p.context,
         supportsImages: p.supportsImages,
-        isLocal: p.isLocal,
+        isLocal: !activeProviders.has(m.provider),
         breakdown: {
           normIntel: 0,
           normSpeed: 0,
@@ -506,12 +505,9 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
         return;
       }
 
-      const activeProviders = getAuthenticatedProvidersFromAuthJson();
-      const hasVisibleProviders = ((ctx.modelRegistry.getAll() as ModelLike[]) ?? []).some(
-        (m) => activeProviders.has(m.provider) || isLocalModel(m.provider),
-      );
+      const hasVisibleProviders = ((ctx.modelRegistry.getAll() as ModelLike[]) ?? []).length > 0;
       if (!hasVisibleProviders) {
-        const msg = 'No authenticated providers found and no local providers available in registry.';
+        const msg = 'No models available in registry.';
         if (ctx.hasUI) ctx.ui.notify(msg, 'warning');
         else console.log(msg);
         return;
