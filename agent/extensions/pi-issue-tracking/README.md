@@ -1,108 +1,73 @@
 # pi-issue-tracking
 
-Filesystem issue tracker extension for Pi, backed by markdown files in `.issues/`.
+Filesystem-based issue tracker extension for Pi.
 
-This extension is intentionally file-centric: issues are human-readable, versionable, and scriptable without external APIs.
-
-## Data model
-
-### Types
-
-- `initiative`
-- `epic`
-- `story`
-- `task`
-- `bug`
-
-### Status
-
-- `open`
-- `in_progress`
-- `done`
-- `closed`
-
-### File location + naming
-
-- directory: `<cwd>/.issues`
-- filename: `{id}-{type}-{slug}.md`
-- id format: zero-padded 5-digit string (e.g. `00042`)
+It stores issues in a project-local `.issues/` folder as markdown files with YAML frontmatter.
 
 ## Tools
 
 ### `issue_create`
 
-Creates a new issue document.
+Creates an issue file with an auto-assigned 5-digit id.
 
 Parameters:
 
-- `type` (required)
-- `title` (required)
-- `description?`
-- `criteria?`
-- `status?`
-- `parent?`
-- `depends?` (comma-separated)
-- `author?`
-- `assignee?`
-
-Behavior:
-
-- allocates next id from existing files,
-- writes YAML frontmatter + typed body template,
-- includes issue-type-specific sections (bug/scoped/technical variants).
+- `type`: `initiative | epic | story | task | bug`
+- `title`: issue title
+- `description?`: optional body text
+- `criteria?`: optional acceptance criteria text
+- `status?`: `open | in_progress | done | closed` (default `open`)
+- `parent?`: parent issue id
+- `depends?`: comma-separated dependency ids
+- `author?`: author attribution
+- `assignee?`: assignee attribution
 
 ### `issue_list`
 
-Lists issues with optional filters:
+Lists issues from `.issues/`.
+
+Filters:
 
 - `status?`
 - `type?`
 
-Output includes `[id] <emoji> <type> | <status> | <title>` rows.
-
 ### `issue_read`
 
-Reads full markdown content for one issue by `id`.
+Reads a single issue by id.
+
+Parameter:
+
+- `id`: 5-digit issue id
 
 ### `issue_comment`
 
-Appends a dated update block to an issue with optional artifacts/next steps/blockers.
+Appends a structured update block to an issue.
 
-## Frontmatter behavior
+Parameters:
 
-Frontmatter fields include:
+- `id` (required)
+- `update` (required)
+- `artifacts?`
+- `next_steps?`
+- `blockers?`
+- `author?`
 
-- required: `id`, `type`, `title`, `status`
-- optional: `parent`, `depends`, `opencode-agent`, `opencode-assignee`
+## Format and naming
 
-Serialization/parsing safeguards:
+- Directory: `<cwd>/.issues`
+- File naming: `{id}-{type}-{slug}.md`
 
-- single-quote escaping for YAML-safe values,
-- newline stripping for single-line metadata fields,
-- quote-aware frontmatter parse helper used by list/read flows.
+Frontmatter includes id/type/title/status and optional parent/depends/author/assignee.
 
-## Concurrency and failure handling
+## Safety and robustness
 
-- Issue creation uses `openSync(filepath, 'wx')` for atomic file creation.
-- On id collision (`EEXIST`), creation retries with a fresh id.
-- On non-collision write failure, partial file is removed best-effort before rethrow.
-
-## Body template behavior
-
-Generated issue body always includes:
-
-- title heading with type emoticon
-- `Description`
-- type-specific section block:
-  - bug: reproduce / expected / actual
-  - initiative|epic|story: scope/goals/risks
-  - task: technical requirements
-- `Acceptance Criteria`
-- `Comments`
+- Atomic creation uses exclusive file open (`wx`) with retry on id collisions.
+- Frontmatter values are escaped/sanitized for safe YAML serialization.
+- On non-collision create failures, partial files are cleaned up best-effort.
 
 ## Development
 
-From `agent/extensions/pi-issue-tracking`:
+From this extension directory:
 
 - `npm run lint`
 - `npm run format`
