@@ -2,20 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { applyLocalityFilter, isModelVisibleByProvider } from './command-active-models';
 
 describe('active-models provider visibility', () => {
-  it('includes providers not present in auth set (treated as local by policy)', () => {
-    const activeProviders = new Set<string>(['openai']);
-    expect(isModelVisibleByProvider('lmstudio', activeProviders)).toBe(true);
+  it('includes local providers', () => {
+    expect(isModelVisibleByProvider('lmstudio')).toBe(true);
   });
 
-  it('includes custom unauthenticated provider keys', () => {
-    const activeProviders = new Set<string>(['openai']);
-    expect(isModelVisibleByProvider('lmstud5o', activeProviders)).toBe(true);
+  it('includes custom provider keys for discovery', () => {
+    expect(isModelVisibleByProvider('lmstud5o')).toBe(true);
   });
 
-  it('keeps authenticated providers visible as well', () => {
-    const activeProviders = new Set<string>(['openai']);
-    expect(isModelVisibleByProvider('openai', activeProviders)).toBe(true);
-    expect(isModelVisibleByProvider('anthropic', activeProviders)).toBe(true);
+  it('includes commercial providers listed by registry', () => {
+    expect(isModelVisibleByProvider('openai')).toBe(true);
+    expect(isModelVisibleByProvider('anthropic')).toBe(true);
   });
 });
 
