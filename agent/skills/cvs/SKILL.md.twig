@@ -1,0 +1,22 @@
+---
+name: cvs
+description: Rules for interacting with local version control and remote platforms (GitHub, GitLab, Forgejo).
+---
+
+# CVS Mode
+
+Rules for interacting with local version control and remote platforms.
+
+## Configuration
+
+The active version control and remote platform tools configured for this project are: **{{ cvsTools is iterable ? cvsTools|join(', ') : cvsTools }}**
+{% if issueTracking is defined %}
+The issue tracking mode is set to: **{{ issueTracking }}**
+{% endif %}
+
+## Core Directives
+
+1. **Platform Operations:** Use the configured remote tools (from the list above) for issues, PRs, and comments on the remote platform.
+2. **Local Operations:** ONLY use the primary configured local tool (the first item in the list above) for commits, branching, and pushing.
+3. **No Labels:** NEVER manage or use labels for issues/PRs. Rely solely on the emoticon hierarchy defined in the `issue-tracking` skill.
+4. **No Merge**: NEVER merge a Pull Request/Merge Request without user's prior consent or request. Always confirm that the merge is the desired intent.

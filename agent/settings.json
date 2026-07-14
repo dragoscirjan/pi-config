@@ -1,6 +1,10 @@
 {
-  "lastChangelogVersion": "0.70.6",
-  "defaultProvider": "github-copilot",
-  "defaultModel": "gemini-3.1-pro-preview",
-  "defaultThinkingLevel": "medium"
+  "lastChangelogVersion": "0.80.3",
+  "packages": [
+    "npm:pi-subagents",
+    "npm:pi-mcp-adapter"
+  ],
+  "defaultProvider": "lmstudio",
+  "defaultModel": "qwen/qwen3-coder-30b",
+  "theme": "dark"
 }

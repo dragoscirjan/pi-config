@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+for cmd in format:fix lint:fix; do
+	npm run "$cmd"
+done
+
+git add -A
