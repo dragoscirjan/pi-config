@@ -20,21 +20,28 @@ Path resolution follows Pi profile semantics:
 - `PI_CODING_AGENT_DIR/local-models.json` if `PI_CODING_AGENT_DIR` is set
 - otherwise `~/.pi/agent/local-models.json`
 
-Example:
+Example (arbitrary provider keys):
 
 ```json
 {
   "backends": {
-    "lmstudio": {
+    "studio-main": {
       "urls": [{ "url": "http://127.0.0.1:1234" }]
     },
-    "ollama": {
+    "studio-remote": {
+      "backend": "lmstudio",
+      "urls": [{ "url": "http://192.168.86.38:1234", "name": "gpu-a" }]
+    },
+    "ollama-lab": {
+      "backend": "ollama",
       "urls": [{ "url": "http://127.0.0.1:11434" }]
     },
-    "llamacpp": {
+    "llama-gateway": {
+      "backend": "llamacpp",
       "urls": [{ "url": "http://127.0.0.1:8080", "name": "gpu-a" }]
     },
-    "mlx": {
+    "mlx-edge": {
+      "backend": "mlx",
       "urls": [{ "url": "http://127.0.0.1:8000", "headers": ["Authorization: Bearer $MLX_TOKEN"] }]
     }
   },
@@ -93,7 +100,13 @@ Rules are applied in-order to each discovered model.
 Rule scope supports both global and provider-key-specific behavior:
 
 - `providerKey` omitted -> global rule (all providers)
-- `providerKey` set -> only applies to that exact provider key
+- `providerKey` set -> only applies to that exact configured provider key
+
+Backend mapping per provider key:
+
+- if `backend` is explicitly set and valid, use it,
+- else if provider key itself is a known backend key (`lmstudio`, `ollama`, `llamacpp`, `mlx`), use that (legacy mode),
+- else default to `lmstudio`.
 
 Precedence is always:
 
@@ -126,13 +139,13 @@ Rule options currently supported:
       "options": { "reasoning": true, "contextWindow": 131072 }
     },
     {
-      "providerKey": "lmstudio/gpu-a",
+      "providerKey": "studio-remote",
       "type": "string",
       "match": "qwen2.5-coder:32b",
       "options": { "maxTokens": 32768 }
     },
     {
-      "providerKey": "ollama/remote-b",
+      "providerKey": "ollama-lab",
       "type": "string",
       "match": ":7b",
       "options": { "maxTokens": 4096 }
@@ -144,8 +157,8 @@ Rule options currently supported:
 In this example:
 
 - global reasoning/context defaults apply everywhere,
-- `lmstudio/gpu-a` gets a larger `maxTokens` override for one model,
-- `ollama/remote-b` applies a tighter cap for `:7b` variants.
+- `studio-remote` gets a larger `maxTokens` override for one model,
+- `ollama-lab` applies a tighter cap for `:7b` variants.
 
 If still unset after discovery + rules, Pi-compatible defaults are applied:
 
@@ -170,8 +183,8 @@ Invalid header lines (missing `:` or empty name) are skipped with warnings.
 
 Provider naming policy:
 
-- single unnamed server for a backend -> `<backend>`
-- otherwise -> `<backend>/<serverName|default>`
+- single unnamed server for a provider key -> `<providerKey>`
+- otherwise -> `<providerKey>/<serverName|default>`
 
 If two servers resolve to same provider name, suffixes are appended automatically:
 

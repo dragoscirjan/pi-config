@@ -31,15 +31,15 @@ describe('applyRules', () => {
         options: { contextWindow: 65536 },
       },
       {
-        providerKey: 'lmstudio/gpu-a',
+        providerKey: 'studio-main',
         type: 'string',
         match: 'qwen',
         options: { contextWindow: 200000, reasoning: true },
       },
     ];
 
-    const matchingProvider = applyRules(baseModel, rules, 'lmstudio/gpu-a');
-    const otherProvider = applyRules(baseModel, rules, 'lmstudio/gpu-b');
+    const matchingProvider = applyRules(baseModel, rules, 'studio-main');
+    const otherProvider = applyRules(baseModel, rules, 'studio-remote');
 
     expect(matchingProvider.contextWindow).toBe(200000);
     expect(matchingProvider.reasoning).toBe(true);
@@ -51,7 +51,7 @@ describe('applyRules', () => {
   it('lets provider-scoped rules override global matches regardless of declaration order', () => {
     const rules: Rule[] = [
       {
-        providerKey: 'ollama/remote-a',
+        providerKey: 'ollama-lab',
         type: 'string',
         match: 'coder',
         options: { maxTokens: 4096 },
@@ -63,7 +63,7 @@ describe('applyRules', () => {
       },
     ];
 
-    const result = applyRules(baseModel, rules, 'ollama/remote-a');
+    const result = applyRules(baseModel, rules, 'ollama-lab');
     expect(result.maxTokens).toBe(4096);
   });
 

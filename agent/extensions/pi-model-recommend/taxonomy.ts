@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { getAgentDir } from '@mariozechner/pi-coding-agent';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { getRouterDb } from './learning';
 import { clamp } from './profiles';
 import type { Taxonomy, RecommendConfig, TaxonomyState } from './types';

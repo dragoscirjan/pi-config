@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { getAgentDir } from '@mariozechner/pi-coding-agent';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { clamp, hashString } from './profiles';
 import type { ScoredModel, Intent, RecommendConfig } from './types';
 

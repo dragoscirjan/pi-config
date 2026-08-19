@@ -5,6 +5,7 @@
     "npm:pi-mcp-adapter"
   ],
   "defaultProvider": "lmstudio",
-  "defaultModel": "qwen/qwen3-coder-30b",
-  "theme": "dark"
+  "defaultModel": "google/gemma-4-31b",
+  "theme": "dark",
+  "defaultThinkingLevel": "medium"
 }
