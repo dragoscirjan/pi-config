@@ -13,8 +13,8 @@ set -euo pipefail
 readonly PI_EXT_DIR="${HOME}/.pi/agent/extensions/context-mode"
 readonly MCP_CONFIG="${HOME}/.pi/agent/mcp.json"
 readonly CONTEXT_MODE_VERSION="1.0.169"
-readonly PI_SUBAGENTS_VERSION="0.34.0"
-readonly PI_MCP_ADAPTER_REF="82724dccc13a49310530898f922bafff12b7f3fe"
+readonly PI_SUBAGENTS_VERSION="0.66.0"
+readonly PI_MCP_ADAPTER_VERSION="2.32.1"
 
 # Save arguments for module parsing
 declare -a ARGS
@@ -86,7 +86,7 @@ module_context_mode() {
   mkdir -p "${PI_EXT_DIR}"
 
   cat << 'EOF' > "${PI_EXT_DIR}/index.ts"
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 
@@ -153,54 +153,18 @@ EOF
 }
 
 # Module: pi-subagents
-# Installs pi-subagents and patches namespace imports.
+# Installs a Pi-compatible pi-subagents release.
 module_pi_subagents() {
   log_info "Installing pi-subagents (pinned: ${PI_SUBAGENTS_VERSION})..."
   pi install "npm:pi-subagents@${PI_SUBAGENTS_VERSION}"
-
-  log_info "Patching pi-subagents imports for compatibility..."
-  local npm_root
-  npm_root="$(npm root -g)"
-  
-  if [[ -d "${npm_root}/pi-subagents" ]]; then
-    find "${npm_root}/pi-subagents" -type f \( -name "*.ts" -o -name "*.js" -o -name "*.json" \) \
-      -exec sed -i 's/@earendil-works\/pi-coding-agent/@mariozechner\/pi-coding-agent/g' {} +
-    log_info "pi-subagents patched in ${npm_root}/pi-subagents."
-  elif [[ -d "${HOME}/.nvm" ]]; then
-    log_info "pi-subagents not found in ${npm_root}. Trying NVM fallback..."
-
-    local -a nvm_paths
-    mapfile -t nvm_paths < <(find "${HOME}/.nvm" -path "*/lib/node_modules/pi-subagents" -type d)
-
-    if [[ ${#nvm_paths[@]} -eq 0 ]]; then
-      log_err "NVM fallback did not find any pi-subagents installation to patch."
-      return 1
-    fi
-
-    local patched_count=0
-    for subagents_dir in "${nvm_paths[@]}"; do
-      find "${subagents_dir}" -type f \( -name "*.ts" -o -name "*.js" -o -name "*.json" \) \
-        -exec sed -i 's/@earendil-works\/pi-coding-agent/@mariozechner\/pi-coding-agent/g' {} +
-      patched_count=$((patched_count + 1))
-    done
-
-    if [[ ${patched_count} -eq 0 ]]; then
-      log_err "NVM fallback completed but patched_count=0; aborting."
-      return 1
-    fi
-
-    log_info "pi-subagents patched via NVM fallback (${patched_count} installation(s))."
-  else
-    log_err "Could not find pi-subagents to patch. You may encounter import errors."
-    return 1
-  fi
+  log_info "pi-subagents installation complete."
 }
 
 # Module: pi-mcp-adapter
-# Installs the external MCP adapter from nicobailon.
+# Installs the same npm package source used by agent/settings.json.
 module_pi_mcp_adapter() {
-  log_info "Installing pi-mcp-adapter (pinned ref: ${PI_MCP_ADAPTER_REF})..."
-  pi install "git:github.com/nicobailon/pi-mcp-adapter#${PI_MCP_ADAPTER_REF}"
+  log_info "Installing pi-mcp-adapter (pinned: ${PI_MCP_ADAPTER_VERSION})..."
+  pi install "npm:pi-mcp-adapter@${PI_MCP_ADAPTER_VERSION}"
   log_info "pi-mcp-adapter installation complete."
 }
 

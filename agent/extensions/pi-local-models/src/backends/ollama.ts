@@ -14,10 +14,16 @@ interface OllamaTagsResponse {
 
 interface OllamaTagModel {
   name: string;
-  model?: string;
-  size?: number;
-  digest?: string;
-  details?: { family?: string; parameter_size?: string; quantization_level?: string };
+  model?: string | undefined;
+  size?: number | undefined;
+  digest?: string | undefined;
+  details?:
+    | {
+        family?: string | undefined;
+        parameter_size?: string | undefined;
+        quantization_level?: string | undefined;
+      }
+    | undefined;
 }
 
 interface OllamaShowResponse {

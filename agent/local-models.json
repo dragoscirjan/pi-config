@@ -2,50 +2,33 @@
   "backends": {
     "lmstudio": {
       "urls": [
-        { "url": "http://127.0.0.1:1234" }
-      ]
-    },
-    "ollama": {
-      "urls": [
-        { "url": "http://127.0.0.1:11434" }
-      ]
-    },
-    "llamacpp": {
-      "urls": [
-        { "url": "http://127.0.0.1:8080" }
+        {
+          "name": "tw-nixos",
+          "url": "http://tw-nixos.trilu.lila:1234"
+        },
+        {
+          "name": "mac-m5",
+          "url": "http://mac-m5.trilu.lila:1234"
+        }
       ]
     }
   },
   "rules": [
     {
-      "match": "north-mini-code-1.0",
-      "type": "string",
-      "providerKey": "lmstudio",
+      "match": "qwen",
+      "type": "regex",
+      "providerKey": "lmstudio/tw-nixos",
       "options": {
+        "reasoning": true,
         "contextWindow": 480000
       }
     },
     {
-      "match": "qwen/qwen3.6-27b",
-      "type": "string",
-      "providerKey": "lmstudio",
+      "match": "gemma",
+      "type": "regex",
+      "providerKey": "lmstudio/tw-nixos",
       "options": {
-        "contextWindow": 220000
-      }
-    },
-    {
-      "match": "google/gemma-4-31b",
-      "type": "string",
-      "providerKey": "lmstudio",
-      "options": {
-        "contextWindow": 220000
-      }
-    },
-    {
-      "match": "qwen/qwen3-coder-30b",
-      "type": "string",
-      "providerKey": "lmstudio",
-      "options": {
+        "reasoning": true,
         "contextWindow": 220000
       }
     }

@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
-import { type ExtensionAPI, DynamicBorder } from '@mariozechner/pi-coding-agent';
-import { Container, type SelectItem, SelectList, Input, Text, Key, matchesKey } from '@mariozechner/pi-tui';
+import { type ExtensionAPI, DynamicBorder } from '@earendil-works/pi-coding-agent';
+import { Container, type SelectItem, SelectList, Input, Text, Key, matchesKey } from '@earendil-works/pi-tui';
 import { getAuthenticatedProvidersFromAuthJson } from './auth';
 import { syncBenchmarks, getAllBenchmarks, findBenchmarkForModel } from './benchmarks';
 import { analyzeIntent } from './intent';

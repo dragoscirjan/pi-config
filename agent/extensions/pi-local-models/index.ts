@@ -1,7 +1,8 @@
-import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { isLMStudioModelLoaded } from './src/loading-check.js';
 import { setNotifier, runSilently } from './src/log.js';
 import { createSyncProviders } from './src/sync.js';
+import type { ServerEntry } from './src/types.js';
 
 /**
  * pi-local-models: registers LM Studio, Ollama, llama.cpp, and MLX local
@@ -16,8 +17,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   const loadedCache = new Map<string, { loaded: boolean; expiresAt: number }>();
   const loadedInFlight = new Map<string, Promise<boolean>>();
 
-  const getLoadedState = async (serverUrl: string, modelId: string): Promise<boolean> => {
-    const key = `${serverUrl}::${modelId}`;
+  const getLoadedState = async (server: ServerEntry, modelId: string): Promise<boolean> => {
+    const key = `${server.url}::${modelId}`;
     const now = Date.now();
     const cached = loadedCache.get(key);
     if (cached && cached.expiresAt > now) return cached.loaded;
@@ -25,7 +26,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     const pending = loadedInFlight.get(key);
     if (pending) return pending;
 
-    const promise = isLMStudioModelLoaded(serverUrl, modelId)
+    const promise = isLMStudioModelLoaded(server, modelId)
       .then((loaded) => {
         loadedCache.set(key, {
           loaded,
@@ -87,7 +88,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     const entry = syncProviders.getServer(model.provider);
     if (!entry || entry.backend !== 'lmstudio') return;
 
-    const loaded = await getLoadedState(entry.server.url, model.id);
+    const loaded = await getLoadedState(entry.server, model.id);
     if (!loaded) {
       ctx.ui.setWorkingMessage('⏳ loading model…');
     }
