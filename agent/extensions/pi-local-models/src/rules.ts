@@ -1,8 +1,8 @@
 import { logWarn } from './log.js';
-import type { NormalizedModel, ProviderModelConfig, Rule } from './types.js';
+import type { NormalizedModel, ProviderChatModelConfig, Rule } from './types.js';
 
 /** Pi's own documented built-in defaults, used only because the installed
- * `ProviderModelConfig` TypeScript interface requires these fields to be
+ * `ProviderChatModelConfig` TypeScript interface requires these fields to be
  * concrete (non-optional) values. Kept in sync with Pi's documented
  * defaults (see pi.dev/docs/latest/models) so we never silently diverge
  * from what Pi would apply on our behalf if these were omitted. */
@@ -25,7 +25,7 @@ const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
  * Match target is both `id` and `displayName` (OR match), regex is
  * case-insensitive.
  */
-export function applyRules(model: NormalizedModel, rules: Rule[], providerKey?: string): ProviderModelConfig {
+export function applyRules(model: NormalizedModel, rules: Rule[], providerKey?: string): ProviderChatModelConfig {
   let contextWindow = model.contextWindow;
   let maxTokens = model.maxTokens;
   let reasoning = model.reasoning;

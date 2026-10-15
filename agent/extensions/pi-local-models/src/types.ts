@@ -72,4 +72,4 @@ export interface NormalizedModel {
 /** Signature every backend discovery module must implement. */
 export type DiscoverModels = (server: ServerEntry) => Promise<NormalizedModel[]>;
 
-export type { ProviderModelConfig };
+export type ProviderChatModelConfig = Extract<ProviderModelConfig, { type?: 'chat' }>;

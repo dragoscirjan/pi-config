@@ -1,9 +1,5 @@
 # AGENTS.md
 
-## Coding Rules
-
-Enforced automatically by the `pi-coder` extension's `detect_language` tool guidelines (see its `promptGuidelines`) whenever that extension is loaded — not duplicated here.
-
 ## Default MCP tool preferences
 
 When solving user requests in this repo, prefer the following MCP servers by default:
@@ -18,7 +14,7 @@ When solving user requests in this repo, prefer the following MCP servers by def
    - Prefer `docs_github_grep` when public-repo code examples are useful.
 
 4. **Web search and web page fetching**
-   - Prefer `webcrawl_searchable_web` for web discovery and page retrieval.
+   - Prefer `webcrawl_searchable` for web discovery and page retrieval.
    - Reason: it converts HTML pages to Markdown, which is easier for the LLM to read and summarize accurately.
 
 5. **Context Management and Data Extraction ("Think in Code") — use proactively, not just for "large" data**
@@ -39,4 +35,4 @@ When solving user requests in this repo, prefer the following MCP servers by def
 - If an MCP/server is explicitly requested by the user, use it.
 - If no tool is needed for a simple response, answer directly.
 - Be concise in final responses.
-- Mention MCP server names when needed, but do **not** prescribe specific MCP function names; let the agent discover/select functions.
+- Mention MCP server and tool names when a specific workflow depends on them; otherwise let the agent discover and select tools.

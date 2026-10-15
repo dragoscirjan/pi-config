@@ -25,7 +25,6 @@ function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolea
 
   return new Promise((resolve) => {
     let done = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     const finish = (delivered: boolean) => {
       if (done) return;
       done = true;
@@ -41,7 +40,7 @@ function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolea
     socket.on('connect', () => socket.write(`${JSON.stringify(request)}\n`));
     socket.on('data', () => finish(true));
     socket.on('end', () => finish(false));
-    timeout = setTimeout(() => finish(false), timeoutMs);
+    const timeout = setTimeout(() => finish(false), timeoutMs);
     timeout.unref?.();
   });
 }

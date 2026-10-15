@@ -2,35 +2,30 @@
 
 Practical Pi agent setup with local extensions for:
 
-- dynamic language-aware coding guidance,
 - local model provider discovery,
 - model recommendation and auto-routing,
-- filesystem issue tracking,
-- context-aware MCP memory tooling.
+- native MCP integrations and context-aware memory tooling.
 
 ## Repository layout
 
 - `agent/settings.json` — active Pi package settings (external packages, default model/provider).
 - `agent/extensions/` — local extension source code.
-- `context-mode/` — local context-mode helper package.
-- `setup.sh` — installer/update script for optional modules.
 - `.specs/` — implementation/design notes used during this repo evolution.
 
 ## Active external packages (from `agent/settings.json`)
 
-- `npm:pi-subagents@0.66.0`
-- `npm:pi-mcp-adapter@2.32.1`
+- `npm:pi-subagents`
+- `npm:context-mode`
 - `npm:@juicesharp/rpiv-ask-user-question@2.9.0`
 - `git:github.com/badlogic/pi-telegram`
 
 ## Local extensions
 
-| Extension            | Path                                                                                   | Purpose                                                                                          |
-| -------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `pi-coder`           | [`agent/extensions/pi-coder`](agent/extensions/pi-coder/README.md)                     | Adds `detect_language` tool and language context for coding workflows.                           |
-| `pi-local-models`    | [`agent/extensions/pi-local-models`](agent/extensions/pi-local-models/README.md)       | Discovers local backends (LM Studio/Ollama/llama.cpp/MLX) and registers providers.               |
-| `pi-model-recommend` | [`agent/extensions/pi-model-recommend`](agent/extensions/pi-model-recommend/README.md) | `/model-recommend` and `/active-models` commands with learning + taxonomy logic.                 |
-| `pi-issue-tracking`  | [`agent/extensions/pi-issue-tracking`](agent/extensions/pi-issue-tracking/README.md)   | Filesystem issue management tools (`issue_create`, `issue_list`, `issue_read`, `issue_comment`). |
+| Extension            | Path                                                                                   | Purpose                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `herdr-agent-state`  | [`agent/extensions/herdr-agent-state.ts`](agent/extensions/herdr-agent-state.ts)       | Reports session state to Herdr when its integration environment is enabled.         |
+| `pi-local-models`    | [`agent/extensions/pi-local-models`](agent/extensions/pi-local-models/README.md)       | Discovers local backends (LM Studio/Ollama/llama.cpp/MLX) and registers providers. |
+| `pi-model-recommend` | [`agent/extensions/pi-model-recommend`](agent/extensions/pi-model-recommend/README.md) | `/model-recommend` and `/active-models` commands with learning + taxonomy logic.   |
 
 ## Shared quality tooling
 
@@ -58,5 +53,5 @@ Extension-level scripts are standardized across extension packages (`lint`, `for
 ## Notes
 
 - Machine-specific runtime files such as `agent/mcp.json`, `agent/telegram.json`, `agent/trust.json`, and `agent/models-store.json` are ignored and must not be committed.
-- `setup.sh` installs context-mode and registers its `memory_context` MCP server in the local `agent/mcp.json`.
+- MCP servers are managed by Pi's native `builtin:mcp` extension through `agent/mcp.json`.
 - Some generated artifacts under `tmp/` are produced by local quality hooks/tools (for example jscpd HTML output).

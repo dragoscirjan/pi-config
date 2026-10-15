@@ -1,5 +1,0 @@
-{
-  "issueTracking": "fs,issue_create,issue_list,issue_read",
-  "cvsTools": "git,gh,cvs_github",
-  "taskManager": "taskfile"
-}

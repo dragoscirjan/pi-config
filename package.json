@@ -2,7 +2,6 @@
   "name": "pi-config",
   "private": true,
   "workspaces": [
-    "agent/extensions/pi-issue-tracking",
     "agent/extensions/pi-local-models",
     "agent/extensions/pi-model-recommend",
     "agent/npm"
@@ -26,7 +25,22 @@
     "quality:fix": "npm run lint:fix && npm run format:fix"
   },
   "prettier": "@templ-project/prettier",
+  "overrides": {
+    "@earendil-works/chord": "1.1.0",
+    "@earendil-works/pi-agent-core": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-codemode": "1.1.0",
+    "@earendil-works/pi-mcp": "1.1.0",
+    "@earendil-works/pi-tui": "1.1.0"
+  },
   "devDependencies": {
+    "@earendil-works/chord": "1.1.0",
+    "@earendil-works/pi-agent-core": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-codemode": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-mcp": "1.1.0",
+    "@earendil-works/pi-tui": "1.1.0",
     "@jscpd/html-reporter": "^4.2.5",
     "@templ-project/eslint": "^1.3.0",
     "@templ-project/prettier": "^1.1.0",
