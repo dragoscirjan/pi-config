@@ -1,6 +1,6 @@
-import defineConfig from '@templ-project/vitest';
+import tempelVitestConfig from '@tempel/vitest';
 
-export default defineConfig({
+export default tempelVitestConfig({
   include: ['*.test.ts'],
   environment: 'node',
   clearMocks: true,

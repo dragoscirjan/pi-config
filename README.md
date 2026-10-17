@@ -17,13 +17,14 @@ Practical Pi agent setup with local extensions for:
 - `npm:pi-subagents`
 - `npm:context-mode`
 - `npm:@juicesharp/rpiv-ask-user-question@2.9.0`
-- `git:github.com/badlogic/pi-telegram`
+- `npm:@llblab/pi-telegram`
+- `npm:pi-slack-bridge`
 
 ## Local extensions
 
 | Extension            | Path                                                                                   | Purpose                                                                            |
 | -------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `herdr-agent-state`  | [`agent/extensions/herdr-agent-state.ts`](agent/extensions/herdr-agent-state.ts)       | Reports session state to Herdr when its integration environment is enabled.         |
+| `herdr-agent-state`  | [`agent/extensions/herdr-agent-state.ts`](agent/extensions/herdr-agent-state.ts)       | Reports session state to Herdr when its integration environment is enabled.        |
 | `pi-local-models`    | [`agent/extensions/pi-local-models`](agent/extensions/pi-local-models/README.md)       | Discovers local backends (LM Studio/Ollama/llama.cpp/MLX) and registers providers. |
 | `pi-model-recommend` | [`agent/extensions/pi-model-recommend`](agent/extensions/pi-model-recommend/README.md) | `/model-recommend` and `/active-models` commands with learning + taxonomy logic.   |
 
@@ -31,6 +32,7 @@ Practical Pi agent setup with local extensions for:
 
 Root scripts in `package.json`:
 
+- `npm run commitlint -- --edit <message-file>`
 - `npm run lint`
 - `npm run format`
 - `npm run dupcheck`
@@ -42,7 +44,7 @@ Root scripts in `package.json`:
 - `npm run quality`
 - `npm run quality:fix`
 
-Extension-level scripts are standardized across extension packages (`lint`, `format`, `test`; and `typecheck` where configured).
+Extension-level scripts are standardized across extension packages (`lint`, `format`, `test`; and `typecheck` where configured). Husky's `commit-msg` hook validates Conventional Commit messages through `@tempel/commitlint`.
 
 ## Key runtime files
 

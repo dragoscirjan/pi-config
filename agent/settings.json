@@ -1,10 +1,11 @@
 {
-  "lastChangelogVersion": "1.1.0",
+  "lastChangelogVersion": "1.3.0",
   "packages": [
     "npm:@juicesharp/rpiv-ask-user-question@2.9.0",
-    "git:github.com/badlogic/pi-telegram",
     "npm:pi-subagents",
-    "npm:context-mode"
+    "npm:context-mode",
+    "npm:@llblab/pi-telegram",
+    "npm:pi-slack-bridge"
   ],
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.6-sol",

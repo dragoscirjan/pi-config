@@ -15,6 +15,9 @@ agent/mcp-onboarding.json
 agent/pi-subagents/
 agent/model-recommend.db
 agent/run-history.jsonl
+/slk-bridge.json
+/slk-bridge-downloads/
+/slk-bridge-handoffs/
 
 # Local data caches
 .web_stash.db

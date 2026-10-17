@@ -1,20 +1,14 @@
-import templEslintConfig from '@templ-project/eslint';
-import typescriptEslintPlugin from '@typescript-eslint/eslint-plugin';
+import tempelEslintConfig from '@tempel/eslint';
+import typescriptEslint from 'typescript-eslint';
 
 export default [
   {
-    ignores: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/coverage/**',
-      '**/*.d.ts',
-      'agent/extensions/**/out/**',
-    ],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/*.d.ts', 'agent/extensions/**/out/**'],
   },
-  ...templEslintConfig,
+  ...tempelEslintConfig,
   {
     plugins: {
-      '@typescript-eslint': typescriptEslintPlugin,
+      '@typescript-eslint': typescriptEslint.plugin,
     },
     files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
     rules: {
@@ -23,7 +17,7 @@ export default [
   },
   {
     plugins: {
-      '@typescript-eslint': typescriptEslintPlugin,
+      '@typescript-eslint': typescriptEslint.plugin,
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
