@@ -16,7 +16,7 @@ Practical Pi agent setup with local extensions for:
 
 - `npm:pi-subagents`
 - `npm:context-mode`
-- `npm:@juicesharp/rpiv-ask-user-question@2.9.0`
+- `npm:@juicesharp/rpiv-ask-user-question@2.13.9`
 - `npm:@llblab/pi-telegram`
 - `npm:pi-slack-bridge`
 

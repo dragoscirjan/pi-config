@@ -1,8 +1,68 @@
 {
   "name": "pi-config",
   "private": true,
-  "workspaces": ["agent/extensions/pi-local-models", "agent/extensions/pi-model-recommend", "agent/npm"],
-  "prettier": "@tempel/prettier",
+  "workspaces": [
+    "agent/extensions/pi-local-models",
+    "agent/extensions/pi-model-recommend",
+    "agent/npm"
+  ],
+  "prettier": {
+    "bracketSpacing": true,
+    "overrides": [
+      {
+        "files": "*.json",
+        "options": {
+          "parser": "json",
+          "singleQuote": false
+        }
+      },
+      {
+        "files": "*.json5",
+        "options": {
+          "parser": "json5",
+          "singleQuote": false
+        }
+      },
+      {
+        "files": "*.jsonc",
+        "options": {
+          "parser": "jsonc",
+          "singleQuote": false
+        }
+      },
+      {
+        "files": "*.js",
+        "options": {
+          "parser": "babel"
+        }
+      },
+      {
+        "files": "*.md",
+        "options": {
+          "parser": "markdown",
+          "singleQuote": false,
+          "proseWrap": "preserve"
+        }
+      },
+      {
+        "files": [
+          "*.yaml",
+          "*.yml"
+        ],
+        "options": {
+          "parser": "yaml",
+          "singleQuote": true,
+          "bracketSpacing": true
+        }
+      }
+    ],
+    "parser": "typescript",
+    "printWidth": 120,
+    "semi": true,
+    "singleQuote": true,
+    "tabWidth": 2,
+    "trailingComma": "all"
+  },
   "scripts": {
     "commitlint": "commitlint",
     "lint": "npx eslint \"agent/extensions/**/*.{ts,js,mjs,cjs}\"",
@@ -38,15 +98,19 @@
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@earendil-works/pi-mcp": "1.3.0",
     "@earendil-works/pi-tui": "1.3.0",
+    "@eslint/js": "^9.39.5",
     "@jscpd/html-reporter": "^4.2.5",
     "@tempel/commitlint": "^1.1.0",
-    "@tempel/eslint": "^1.3.1",
-    "@tempel/prettier": "^1.1.0",
     "@tempel/vitest": "^0.3.2",
-    "fallow": "^3.33.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-node-import": "^1.2.0",
+    "fallow": "^3.34.1",
+    "globals": "^17.13.0",
     "husky": "^9.1.7",
     "jscpd": "^5.4.1",
-    "typescript-eslint": "^8.70.0",
+    "prettier": "^3.9.10",
+    "typescript-eslint": "^8.71.2",
     "vitest": "^4.1.12"
   }
 }

@@ -2,6 +2,7 @@ node_modules/
 
 # Pi agent runtime state / secrets
 agent/sessions/
+agent/tmp/
 agent/auth.json
 agent/mcp.json
 agent/models-store.json
