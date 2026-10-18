@@ -1,6 +1,15 @@
-import type { ModelLike as RegistryModelLike } from '@earendil-works/pi-coding-agent';
-
-export type ModelLike = RegistryModelLike & { maxTokens?: number };
+export type ModelLike = {
+  id: string;
+  provider: string;
+  reasoning?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
+  cost?: {
+    input?: number;
+    output?: number;
+  };
+  input?: readonly string[];
+};
 
 export type ModelProfile = {
   provider: string;

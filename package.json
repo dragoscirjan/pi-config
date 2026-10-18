@@ -1,11 +1,7 @@
 {
   "name": "pi-config",
   "private": true,
-  "workspaces": [
-    "agent/extensions/pi-local-models",
-    "agent/extensions/pi-model-recommend",
-    "agent/npm"
-  ],
+  "workspaces": ["agent/extensions/pi-local-models", "agent/extensions/pi-model-recommend"],
   "prettier": {
     "bracketSpacing": true,
     "overrides": [
@@ -45,10 +41,7 @@
         }
       },
       {
-        "files": [
-          "*.yaml",
-          "*.yml"
-        ],
+        "files": ["*.yaml", "*.yml"],
         "options": {
           "parser": "yaml",
           "singleQuote": true,

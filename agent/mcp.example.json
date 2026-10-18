@@ -1,0 +1,61 @@
+{
+  "mcpServers": {
+    "browser_playwright": {
+      "description": "Browser automation and inspection with Playwright.",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@0.0.83", "--browser", "chromium", "--executable-path", "${BROWSER_PATH}"]
+    },
+    "codeindex_gitnexus": {
+      "description": "Code graph context, dependency flows, impact analysis, and repository structure.",
+      "command": "gitnexus",
+      "args": ["mcp"]
+    },
+    "codeindex_cgc": {
+      "description": "Code graph indexing, search, complexity, dead-code, and architecture analysis.",
+      "command": "cgc",
+      "args": ["mcp", "start"],
+      "timeout": 30
+    },
+    "cvs_github": {
+      "description": "Read-only GitHub repositories and issues through GitHub Copilot MCP.",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_TOKEN}",
+        "X-MCP-Toolsets": "repos,issues",
+        "X-MCP-Readonly": "true"
+      }
+    },
+    "docs_context7": {
+      "description": "Current library and framework documentation.",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "docs_github_grep": {
+      "description": "Search public GitHub code for real-world usage examples.",
+      "url": "https://mcp.grep.app"
+    },
+    "memory_context": {
+      "description": "Context-mode execution, indexing, retrieval, and session memory.",
+      "command": "npx",
+      "args": ["-y", "context-mode@1.0.169"],
+      "exposure": "direct"
+    },
+    "memory_json": {
+      "description": "Persistent local JSONL knowledge-graph memory.",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory@1.0.0"],
+      "env": {
+        "MEMORY_FILE_PATH": ".memory.jsonl"
+      }
+    },
+    "sequential_thinking": {
+      "description": "Structured sequential reasoning for multi-step decisions and debugging.",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking@1.0.0"]
+    },
+    "webcrawl_searchable": {
+      "description": "Search and fetch web content as Markdown.",
+      "command": "npx",
+      "args": ["-y", "@dragoscirjan/mcp-searchable@1.0.4"]
+    }
+  }
+}

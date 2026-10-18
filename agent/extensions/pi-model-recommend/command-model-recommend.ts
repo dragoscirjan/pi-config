@@ -418,7 +418,7 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
       if (opts.syncBenchmarks) {
         ctx.ui.notify('Syncing Aider LLM benchmarks...', 'info');
         const count = await syncBenchmarks();
-        ctx.ui.notify(`Synced ${count} benchmark entries.`, 'success');
+        ctx.ui.notify(`Synced ${count} benchmark entries.`, 'info');
         if (!opts.task) return;
       }
 
@@ -690,7 +690,7 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
       description: 'Type provider/model-id manually',
     });
 
-    const choice = await (ctx as any).ui.custom<string | null>(
+    const choice = await ctx.ui.custom<string | null>(
       (tui: any, theme: any, _kb: any, done: (v: string | null) => void) => {
         const container = new Container();
         container.addChild(new DynamicBorder((s: string) => theme.fg('accent', s)));
@@ -707,21 +707,20 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
         );
         container.addChild(new Text('', 0, 0));
 
-        class AutoWidthSelectList extends SelectList {
-          getPrimaryColumnWidth() {
-            return Math.max(20, ...this.filteredItems.map((i: any) => (i.label ? i.label.length : 0))) + 2;
-          }
-          truncatePrimary(item: any) {
-            return item.label || item.value;
-          }
-        }
-        const selectList = new AutoWidthSelectList(listItems, Math.min(listItems.length, 10), {
-          selectedPrefix: (t: string) => theme.fg('accent', t),
-          selectedText: (t: string) => theme.fg('accent', t),
-          description: (t: string) => theme.fg('dim', t),
-          scrollInfo: (t: string) => theme.fg('dim', t),
-          noMatch: (t: string) => theme.fg('warning', t),
-        });
+        const selectList = new SelectList(
+          listItems,
+          Math.min(listItems.length, 10),
+          {
+            selectedPrefix: (t: string) => theme.fg('accent', t),
+            selectedText: (t: string) => theme.fg('accent', t),
+            description: (t: string) => theme.fg('dim', t),
+            scrollInfo: (t: string) => theme.fg('dim', t),
+            noMatch: (t: string) => theme.fg('warning', t),
+          },
+          {
+            minPrimaryColumnWidth: 20,
+          },
+        );
         selectList.onSelect = (item: SelectItem) => done(item.value as string);
         selectList.onCancel = () => done(null);
         container.addChild(selectList);
@@ -731,7 +730,7 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
         return {
           render: (w: number) => container.render(w),
           invalidate: () => container.invalidate(),
-          handleInput: (data: Uint8Array) => {
+          handleInput: (data: string) => {
             selectList.handleInput(data);
             tui.requestRender();
           },
@@ -752,24 +751,24 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
         } as ScoredModel;
         persistTrainingSample(prompt, 'user-keep', intent, fakeKeep, top.slice(0, 5), margin);
       }
-      (ctx as any).ui.notify(`Keeping current model: ${currentModel}`, 'info');
+      ctx.ui.notify(`Keeping current model: ${currentModel}`, 'info');
       return;
     }
 
     if (choice === 'custom') {
-      const customId = await (ctx as any).ui.custom<string | null>(
+      const customId = await ctx.ui.custom<string | null>(
         (tui: any, theme: any, _kb: any, done: (v: string | null) => void) => {
           const container = new Container();
           container.addChild(new DynamicBorder((s: string) => theme.fg('accent', s)));
           container.addChild(new Text(theme.fg('accent', theme.bold(' Enter model  (provider/model-id)')), 1, 0));
-          const inp = new Input('', 60);
+          const inp = new Input({ placeholder: 'provider/model-id' });
           container.addChild(inp as any);
           container.addChild(new Text(theme.fg('dim', ' enter confirm · esc cancel'), 1, 0));
           container.addChild(new DynamicBorder((s: string) => theme.fg('accent', s)));
           return {
             render: (w: number) => container.render(w),
             invalidate: () => container.invalidate(),
-            handleInput: (data: Uint8Array) => {
+            handleInput: (data: string) => {
               if (matchesKey(data, Key.enter)) {
                 done(inp.getValue().trim() || null);
                 return;
@@ -787,11 +786,11 @@ export default function modelRecommendExtension(pi: ExtensionAPI) {
       if (!customId) return;
       const found = findModelFromInput(customId, (ctx as any).modelRegistry.getAll() as any);
       if (!found) {
-        (ctx as any).ui.notify(`Model not found in registry: ${customId}`, 'warning');
+        ctx.ui.notify(`Model not found in registry: ${customId}`, 'warning');
         return;
       }
       const ok = await pi.setModel(found as any);
-      (ctx as any).ui.notify(
+      ctx.ui.notify(
         `Switched to: ${found.provider}/${found.id}${ok ? '' : ' (switch failed)'}`,
         ok ? 'info' : 'warning',
       );

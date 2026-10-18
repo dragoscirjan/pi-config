@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "Smart model recommendation and failover for Pi",
   "main": "index.ts",
+  "type": "module",
   "scripts": {
     "lint": "npx eslint \"./**/*.{ts,js,mjs,cjs}\"",
     "lint:fix": "npm run lint -- --fix",
     "format": "npx prettier --check \"./**/*.{ts,js,json,md,yml,yaml}\"",
     "format:fix": "npx prettier --write \"./**/*.{ts,js,json,md,yml,yaml}\"",
+    "typecheck": "npx tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -30,6 +32,8 @@
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@earendil-works/pi-tui": "1.3.0",
     "@tempel/vitest": "^0.3.2",
+    "@types/node": "^26.6.5",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.12"
   }
 }

@@ -9,16 +9,17 @@ Practical Pi agent setup with local extensions for:
 ## Repository layout
 
 - `agent/settings.json` — active Pi package settings (external packages, default model/provider).
+- `agent/mcp.example.json` — versioned native Pi MCP configuration template with environment-variable placeholders.
 - `agent/extensions/` — local extension source code.
 - `.specs/` — implementation/design notes used during this repo evolution.
 
 ## Active external packages (from `agent/settings.json`)
 
-- `npm:pi-subagents`
-- `npm:context-mode`
+- `npm:pi-subagents@0.79.1`
+- `npm:context-mode@1.0.169`
 - `npm:@juicesharp/rpiv-ask-user-question@2.13.9`
-- `npm:@llblab/pi-telegram`
-- `npm:pi-slack-bridge`
+- `npm:@llblab/pi-telegram@0.57.1`
+- `npm:pi-slack-bridge@0.3.0`
 
 ## Local extensions
 
@@ -48,9 +49,22 @@ Extension-level scripts are standardized across extension packages (`lint`, `for
 
 ## Key runtime files
 
+- `agent/mcp.json` — native Pi MCP server configuration, created locally from `agent/mcp.example.json`.
 - `agent/local-models.json` — backend server list + optional model annotation rules for `pi-local-models`.
 - `agent/model-recommend.db` — SQLite state for `pi-model-recommend` (settings, weights, samples, taxonomy, benchmarks).
 - `agent/model-recommend-config.json` — scoring/taxonomy tuning for `pi-model-recommend`.
+
+## Native MCP setup
+
+Pi's built-in MCP extension reads `agent/mcp.json`; this file is not associated with the removed legacy MCP adapter. Create the local configuration from the tracked, secret-free template:
+
+```sh
+cp agent/mcp.example.json agent/mcp.json
+chmod 600 agent/mcp.json
+pi mcp list
+```
+
+The template uses environment-variable placeholders for credentials and machine-specific paths.
 
 ## Notes
 

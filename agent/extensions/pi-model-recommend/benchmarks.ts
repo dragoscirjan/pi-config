@@ -96,7 +96,7 @@ export function getAllBenchmarks(): BenchmarkStats[] {
       .prepare(
         'SELECT model, pass_rate_edit as editPassRate, pass_rate_refactor as refactorPassRate FROM model_benchmarks',
       )
-      .all() as BenchmarkStats[];
+      .all() as unknown as BenchmarkStats[];
   } catch {
     return [];
   }
