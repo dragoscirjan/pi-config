@@ -2,8 +2,8 @@
   "mcpServers": {
     "browser_playwright": {
       "description": "Browser automation and inspection with Playwright.",
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@0.0.83", "--browser", "chromium", "--executable-path", "${BROWSER_PATH}"]
+      "command": "node",
+      "args": ["~/.pi/agent/scripts/playwright-mcp.js"]
     },
     "codeindex_gitnexus": {
       "description": "Code graph context, dependency flows, impact analysis, and repository structure.",

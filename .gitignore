@@ -4,7 +4,6 @@ node_modules/
 agent/sessions/
 agent/tmp/
 agent/auth.json
-agent/mcp.json
 agent/models-store.json
 agent/telegram.json
 agent/trust.json
