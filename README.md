@@ -11,6 +11,7 @@ Practical Pi agent setup with local extensions for:
 - `agent/settings.json` — active Pi package settings (external packages, default model/provider).
 - `agent/mcp.json` — versioned native Pi MCP configuration with environment-variable placeholders.
 - `agent/scripts/playwright-mcp.js` — cross-platform Playwright MCP launcher with automatic NixOS Chromium configuration.
+- `agent/scripts/excalidraw-mcp.js` — cross-platform Excalidraw MCP bootstrapper and launcher.
 - `agent/extensions/` — local extension source code.
 - `.specs/` — implementation/design notes used during this repo evolution.
 
@@ -63,7 +64,7 @@ Pi's built-in MCP extension reads the tracked `agent/mcp.json`; this file is not
 pi mcp list
 ```
 
-The configuration uses environment-variable placeholders for credentials, so secrets remain outside the repository. Its Playwright entry calls a Node launcher that uses the system Chromium path on NixOS and Playwright's default configuration elsewhere.
+The configuration uses environment-variable placeholders for credentials, so secrets remain outside the repository. Its Playwright entry calls a Node launcher that uses the system Chromium path on NixOS and Playwright's default configuration elsewhere. The Excalidraw entry calls a Node launcher that clones into `~/.local/opt/excalidraw-mcp`, installs and builds the checkout when needed, then starts its stdio server.
 
 ## Notes
 

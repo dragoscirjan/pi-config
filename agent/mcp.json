@@ -5,6 +5,11 @@
       "command": "node",
       "args": ["~/.pi/agent/scripts/playwright-mcp.js"]
     },
+    "excalidraw": {
+      "description": "Create and edit hand-drawn Excalidraw diagrams.",
+      "command": "node",
+      "args": ["~/.pi/agent/scripts/excalidraw-mcp.js"]
+    },
     "codeindex_gitnexus": {
       "description": "Code graph context, dependency flows, impact analysis, and repository structure.",
       "command": "gitnexus",
