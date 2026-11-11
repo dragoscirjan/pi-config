@@ -1,14 +1,22 @@
 {
-  "lastChangelogVersion": "1.4.0",
+  "lastChangelogVersion": "1.5.0",
   "packages": [
     "npm:pi-subagents@0.79.1",
-    "npm:context-mode@1.0.169",
+    "npm:context-mode",
     "npm:@llblab/pi-telegram@0.57.1",
     "npm:pi-slack-bridge@0.3.0",
-    "npm:@juicesharp/rpiv-ask-user-question@2.13.9"
+    "npm:@juicesharp/rpiv-ask-user-question@2.13.9",
+    "npm:@juicesharp/rpiv-voice",
+    "npm:@juicesharp/rpiv-i18n"
   ],
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-6.1-sol",
   "theme": "dark",
-  "defaultThinkingLevel": "high"
+  "defaultThinkingLevel": "high",
+  "extensionChangelogVersions": {
+    "{\"source\":\"npm:pi-subagents@0.79.1\",\"scope\":\"user\"}": "0.79.1",
+    "{\"source\":\"npm:@llblab/pi-telegram@0.57.1\",\"scope\":\"user\"}": "0.57.1",
+    "{\"source\":\"npm:pi-slack-bridge@0.3.0\",\"scope\":\"user\"}": "0.3.0",
+    "{\"source\":\"npm:@juicesharp/rpiv-voice\",\"scope\":\"user\"}": "2.15.0"
+  }
 }

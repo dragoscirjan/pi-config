@@ -1,5 +1,10 @@
 node_modules/
 
+# Installer-generated Pi launcher, managed releases, and downloaded model weights
+/agent/bin/
+/agent/install/
+/models/
+
 # Pi agent runtime state / secrets
 agent/sessions/
 agent/tmp/

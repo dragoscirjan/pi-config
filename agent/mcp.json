@@ -3,22 +3,34 @@
     "browser_playwright": {
       "description": "Browser automation and inspection with Playwright.",
       "command": "node",
-      "args": ["~/.pi/agent/scripts/playwright-mcp.js"]
+      "args": [
+        "~/.pi/agent/scripts/playwright-mcp.js"
+      ]
     },
     "excalidraw": {
       "description": "Create and edit hand-drawn Excalidraw diagrams.",
       "command": "node",
-      "args": ["~/.pi/agent/scripts/excalidraw-mcp.js"]
+      "args": [
+        "~/.pi/agent/scripts/excalidraw-mcp.js"
+      ]
     },
     "codeindex_gitnexus": {
       "description": "Code graph context, dependency flows, impact analysis, and repository structure.",
       "command": "gitnexus",
-      "args": ["mcp"]
+      "args": [
+        "mcp"
+      ]
     },
     "codeindex_cgc": {
+      "env": {
+        "CGC_ALLOWED_ROOTS": "${HOME}/.local/state/redline/reviews"
+      },
       "description": "Code graph indexing, search, complexity, dead-code, and architecture analysis.",
       "command": "cgc",
-      "args": ["mcp", "start"],
+      "args": [
+        "mcp",
+        "start"
+      ],
       "timeout": 30
     },
     "cvs_github": {
@@ -39,15 +51,24 @@
       "url": "https://mcp.grep.app"
     },
     "memory_context": {
-      "description": "Context-mode execution, indexing, retrieval, and session memory.",
-      "command": "npx",
-      "args": ["-y", "context-mode@1.0.169"],
+      "description": "Legacy context-mode MCP entry; disabled because npm:context-mode supplies Pi's tools and hooks directly.",
+      "command": "/home/dragosc/.nvm/versions/node/v24.22.2/bin/node",
+      "args": [
+        "/home/dragosc/.pi/agent/npm/node_modules/context-mode/cli.mjs",
+        "server",
+        "--agent",
+        "pi"
+      ],
+      "enabled": false,
       "exposure": "direct"
     },
     "memory_json": {
       "description": "Persistent local JSONL knowledge-graph memory.",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory@1.0.0"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory@1.0.0"
+      ],
       "env": {
         "MEMORY_FILE_PATH": ".memory.jsonl"
       }
@@ -55,12 +76,18 @@
     "sequential_thinking": {
       "description": "Structured sequential reasoning for multi-step decisions and debugging.",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking@1.0.0"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking@1.0.0"
+      ]
     },
     "webcrawl_searchable": {
       "description": "Search and fetch web content as Markdown.",
       "command": "npx",
-      "args": ["-y", "@dragoscirjan/mcp-searchable@1.0.4"]
+      "args": [
+        "-y",
+        "@dragoscirjan/mcp-searchable@1.0.4"
+      ]
     }
   }
 }
