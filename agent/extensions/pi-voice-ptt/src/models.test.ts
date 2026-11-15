@@ -85,6 +85,8 @@ describe('verified opt-in model installation', () => {
       const value = digest(encoding);
       const replacement = join(f.dir, 'replacement.bin');
       writeFileSync(replacement, Buffer.alloc(f.bytes.length));
+      // Windows cannot overwrite an open destination; keep its descriptor open under another name.
+      renameSync(f.store.path('small'), join(f.dir, 'hashed-original.bin'));
       renameSync(replacement, f.store.path('small'));
       return value;
     });
