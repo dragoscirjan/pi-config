@@ -136,6 +136,12 @@ describe('npm artifact allowlist', () => {
 });
 
 describe('cross-platform tooling', () => {
+  it('keeps commit hooks read-only so personal or partially staged changes are not swept in', () => {
+    const hook = readFileSync(new URL('../.husky/pre-commit', import.meta.url), 'utf8');
+    assert.doesNotMatch(hook, /\bgit\s+add\b/u);
+    assert.doesNotMatch(hook, /\b(?:format|lint):fix\b/u);
+    assert.match(hook, /for cmd in format lint;/u);
+  });
   it('pins text checkout to LF independently of Windows Git defaults', () => {
     const policy = readFileSync(new URL('../.gitattributes', import.meta.url), 'utf8');
     assert.match(policy, /^\* text=auto eol=lf$/mu);
