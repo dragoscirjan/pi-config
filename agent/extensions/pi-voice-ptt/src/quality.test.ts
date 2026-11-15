@@ -26,8 +26,15 @@ describe('transcript acceptance extends the upstream filter', () => {
   it('does not reinterpret other selected languages as English', () => {
     expect(transcriptProblem('Это нормальная русская речь.', 'ru')).toBeUndefined();
   });
-  it('treats the i18n SDK undefined locale as its documented English default', () => {
-    expect(transcriptProblem('日本語の文章を勝手に出力しています。', undefined)).toContain('inconsistent with English');
+  it.each([
+    'Это нормальная русская речь.',
+    '日本語の文章を正しく認識して表示します。',
+    'هذه جملة عربية واضحة ومفهومة.',
+  ])('accepts auto-detected speech without a selected locale: %s', (text) => {
+    expect(transcriptProblem(text, undefined)).toBeUndefined();
+  });
+  it('still rejects repeated loops with automatic language detection', () => {
+    expect(transcriptProblem('日本語の中で、'.repeat(12), undefined)).toContain('repeated-text loop');
   });
   it('does not hallucinate a script mismatch for numbers or blank text', () => {
     expect(transcriptProblem('12345', 'en')).toBeUndefined();

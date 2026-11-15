@@ -1,5 +1,7 @@
 import { existsSync, statSync, unlinkSync } from 'node:fs';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { ModelStore } from './models.js';
+import { verifyOriginalModel } from './original-model.js';
 import { loadProfile, localPaths, type LocalPaths, type VoiceProfile } from './profile.js';
 import type { SessionProvider } from './provider-context.js';
 import { findServer, WhisperWorker, type ServerOptions } from './server.js';
@@ -18,6 +20,7 @@ export interface InferenceOptions {
   readProfile?: () => Promise<VoiceProfile>;
   find?: typeof findServer;
   start?: (options: ServerOptions, signal: AbortSignal) => Promise<Worker>;
+  verifyOriginal?: (signal: AbortSignal) => Promise<void>;
 }
 
 /** One replaceable recognizer provider, not a second microphone or dictation workflow. */
@@ -27,6 +30,7 @@ export class InferenceService {
   private readonly readProfile: () => Promise<VoiceProfile>;
   private readonly find: typeof findServer;
   private readonly start: (options: ServerOptions, signal: AbortSignal) => Promise<Worker>;
+  private readonly verifyOriginal: (signal: AbortSignal) => Promise<void>;
   private worker: Worker | undefined;
   private key: string | undefined;
   private boot: { promise: Promise<Worker>; abort: AbortController; key: string } | undefined;
@@ -60,6 +64,7 @@ export class InferenceService {
     this.readProfile = options.readProfile ?? (() => loadProfile(this.paths));
     this.find = options.find ?? findServer;
     this.start = options.start ?? ((config, signal) => WhisperWorker.start(config, signal));
+    this.verifyOriginal = options.verifyOriginal ?? ((signal) => verifyOriginalModel(getAgentDir(), signal));
   }
 
   describe(): string {
@@ -79,6 +84,8 @@ export class InferenceService {
       if (provider) {
         const engine = await provider.engine({ ...provider.paths(), numThreads: 4 });
         engine.release();
+      } else {
+        await this.verifyOriginal(signal);
       }
       signal.throwIfAborted();
       return this.describe();
@@ -99,7 +106,7 @@ export class InferenceService {
     this.selected = profile;
     if (!this.worker?.alive) this.setLabel(`${profile.model} · ${profile.device} (not started)`);
     const executable = await this.find(profile.serverPath);
-    const installed = await this.models.installed(profile.model);
+    const installed = await this.models.installed(profile.model, signal);
     signal.throwIfAborted();
     // Fresh machines keep the original, already-working base/CPU flow, without a surprise download.
     if (profile.model === 'base' && profile.device !== 'gpu' && (!executable || !installed)) {

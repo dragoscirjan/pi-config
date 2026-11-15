@@ -10,7 +10,7 @@ export function transcriptProblem(text: string, locale: string | undefined): str
       return 'Whisper returned a repeated-text loop. Dictation was discarded; please try again.';
     }
   }
-  if ((locale?.split('-')[0] ?? 'en') === 'en') {
+  if (locale?.split('-')[0] === 'en') {
     const letters = text.match(/\p{L}/gu) ?? [];
     const nonLatin = letters.filter((letter) => !/\p{Script=Latin}/u.test(letter)).length;
     if (nonLatin >= 6 && nonLatin >= letters.length * 0.25) {

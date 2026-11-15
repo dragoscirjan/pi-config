@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -136,6 +136,10 @@ describe('npm artifact allowlist', () => {
 });
 
 describe('cross-platform tooling', () => {
+  it('pins text checkout to LF independently of Windows Git defaults', () => {
+    const policy = readFileSync(new URL('../.gitattributes', import.meta.url), 'utf8');
+    assert.match(policy, /^\* text=auto eol=lf$/mu);
+  });
   it('uses a Windows npm shim only with its required shell', () => {
     assert.deepEqual(npmInvocation(['pack'], {}, 'win32'), { command: 'npm.cmd', args: ['pack'], shell: true });
     assert.deepEqual(npmInvocation(['pack'], {}, 'linux'), { command: 'npm', args: ['pack'], shell: false });

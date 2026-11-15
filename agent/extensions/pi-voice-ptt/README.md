@@ -30,7 +30,7 @@ Requires **Pi 1.5.0+, Node 22.19+**, the interactive terminal UI and a terminal 
 
 After `/reload`, run `/voice-activate`, hold **Space for about 400 ms**, wait for **Listening**, speak, then release. The accepted final transcript is inserted at the cursor, **not submitted**. Short Space taps still insert spaces. Escape cancels; submission, exit, suspension, session shutdown and loss of focus inside Pi cancel pending dictation.
 
-Selection commands temporarily disarm capture. They confirm downloads and probe the selected backend **without opening a microphone**, then save only on success. If voice was armed, it is rearmed afterward. Cancelling setup leaves it disarmed and preserves the saved choice.
+Selection commands temporarily disarm capture. They confirm downloads and probe the selected backend **without opening a microphone**, then save only on success. Native base/CPU fallback is checked using upstream model-installation and integrity checks, without downloading or opening a microphone; missing models require an explicit `/voice` setup first. If voice was armed, it is rearmed afterward. Cancelling setup leaves it disarmed and preserves the saved choice.
 
 The footer shows the real initialized device (for example `small · GPU Vulkan0`), not merely the requested mode. `not started` means no worker has been initialized yet. `auto` in the language badge means the original i18n/voice flow has no explicit speech-language hint; use the existing `/languages` command to choose English when speaking English.
 
@@ -58,7 +58,7 @@ The picker offers official multilingual whisper.cpp GGML weights:
 
 The UI rounds download sizes up. GPU acceleration improves speed; model choice primarily affects recognition accuracy. A 20 GB GPU is **not** a requirement for this feature.
 
-Downloads are pinned to a Hugging Face revision and SHA256/size, streamed to private temporary files, verified, then atomically installed. Cancellation or checksum failure never replaces an existing model. Modified cache files require re-verification. ONNX weights from rpiv-voice are not interchangeable with GGML weights.
+Downloads are pinned to a Hugging Face revision and SHA256/size, streamed to private temporary files, verified, then atomically installed. Cancellation or checksum failure never replaces an existing model. Verification markers are bound to the hashed file's device/inode, size and high-resolution modification/change timestamps, not a later replacement. Modified cache files require re-verification. Old marker formats are safely rehashed once without downloads or preference changes. ONNX weights from rpiv-voice are not interchangeable with GGML weights.
 
 Nothing below is stored in shared `agent/settings.json` or committed to this repo:
 
@@ -105,7 +105,7 @@ $env:PI_VOICE_WHISPER_SERVER = 'C:\tools\whisper.cpp\build\bin\Release\whisper-s
 
 On NixOS, plain `whisper-cpp` may be CPU-only. A `whisper-cpp.override { vulkanSupport = true; }` build enables Vulkan; a user-local build/root can be used without changing the system or shell profile. A GPU mode flag cannot turn a CPU-only executable into a GPU-enabled build.
 
-The adapter checks actual native GPU initialization messages after model health is ready; a `use_gpu=1` flag or GPU listing alone is not accepted as acceleration. Actual GPU/CPU inference has been exercised on Linux/AMD Vulkan here. macOS/Windows paths/process handling are implemented and included in the configured CI matrix; those jobs and physical GPU/microphone paths still need execution on those machines.
+The adapter checks actual native GPU initialization messages after model health is ready; a `use_gpu=1` flag or GPU listing alone is not accepted as acceleration. Actual GPU/CPU inference has been exercised on Linux/AMD Vulkan here. Linux/macOS/Windows are included in the software CI matrix; physical GPU/microphone paths on macOS/Windows still require hardware validation.
 
 ## How this extends the original workflow
 
@@ -121,7 +121,7 @@ The upstream API is private, so **rpiv-voice 2.15.0** is checked explicitly. Rev
 
 ## Transcript safeguards and limits
 
-The original filter misses unspaced Japanese/Chinese repetition after a prefix. Additional Unicode-loop and English script-consistency checks reject that known failure in previews/final output. Rejected text is discarded with a visible error, not silently rewritten, translated or submitted. Short foreign names and normal speech in another selected language remain supported. A larger model still does not guarantee perfect dictation.
+The original filter misses unspaced Japanese/Chinese repetition after a prefix. Additional Unicode-loop checks reject that known failure in previews/final output. English script-consistency checks apply only when English is explicitly selected; an unset locale keeps automatic language detection and permits valid non-Latin speech. Rejected text is discarded with a visible error, not silently rewritten, translated or submitted. Short foreign names and normal speech in another selected language remain supported. A larger model still does not guarantee perfect dictation.
 
 Capture has a two-minute maximum hold. Original preflight microphone initialization has no immediate abort API; release during that stage is cancelled as soon as the original session becomes available. Backend startup is cancellable before microphone opening. Final decoding and HTTP requests have bounded timeouts; Escape/deactivation cancels pending results and stops native work.
 

@@ -5,7 +5,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from '@earendil-works/pi-c
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InferenceService } from './inference.js';
 import { MODELS, modelSize } from './models.js';
-import { loadProfile } from './profile.js';
+import { loadProfile, saveProfile } from './profile.js';
 import { registerSettingsCommands } from './settings-commands.js';
 const { find } = vi.hoisted(() => ({ find: vi.fn() }));
 vi.mock('./server.js', () => ({ findServer: find }));
@@ -150,6 +150,93 @@ describe('machine-local model/device commands', () => {
     await f.run('voice-device', 'cuda');
     expect(f.stop).not.toHaveBeenCalled();
     expect(f.models.install).not.toHaveBeenCalled();
+  });
+  it('keeps preferences unchanged when original base/CPU validation fails', async () => {
+    const f = await fixture();
+    await saveProfile({ version: 1, model: 'small', device: 'auto' }, f.paths);
+    find.mockResolvedValue(undefined);
+    f.probe.mockRejectedValue(new Error('Run /voice once'));
+    await f.run('voice-model', 'base');
+    expect((await loadProfile(f.paths)).model).toBe('small');
+    expect(f.models.install).not.toHaveBeenCalled();
+    expect(f.ui.notify).toHaveBeenCalledWith(expect.stringContaining('/voice'), 'error');
+  });
+  it('reserves setup before waiting for capture shutdown', async () => {
+    const f = await fixture();
+    let stopped!: (value: boolean) => void;
+    f.stop.mockReturnValueOnce(
+      new Promise((resolve) => {
+        stopped = resolve;
+      }),
+    );
+    const first = f.run('voice-model', 'small');
+    await f.run('voice-device', 'cpu');
+    expect(f.stop).toHaveBeenCalledTimes(1);
+    expect(f.ui.notify).toHaveBeenCalledWith(expect.stringContaining('already running'), 'warning');
+    stopped(false);
+    await first;
+    expect(f.probe).toHaveBeenCalledTimes(1);
+    expect((await loadProfile(f.paths)).device).toBe('auto');
+  });
+  it('can cancel while capture shutdown is still pending', async () => {
+    const f = await fixture(true);
+    let stopped!: (value: boolean) => void;
+    f.stop.mockReturnValueOnce(
+      new Promise((resolve) => {
+        stopped = resolve;
+      }),
+    );
+    const pending = f.run('voice-model', 'small');
+    f.control.cancel();
+    stopped(true);
+    await pending;
+    expect(f.ui.confirm).not.toHaveBeenCalled();
+    expect(f.ui.custom).not.toHaveBeenCalled();
+    expect(f.probe).not.toHaveBeenCalled();
+    expect(f.start).not.toHaveBeenCalled();
+    expect((await loadProfile(f.paths)).model).toBe('base');
+  });
+  it('releases the operation reservation when stopping capture fails', async () => {
+    const f = await fixture();
+    f.stop.mockRejectedValueOnce(new Error('stop failed'));
+    await f.run('voice-model', 'small');
+    await f.run('voice-model', 'small');
+    expect(f.stop).toHaveBeenCalledTimes(2);
+    expect(f.probe).toHaveBeenCalledTimes(1);
+  });
+  it('does not open a download dialog after cancellation during model lookup', async () => {
+    const f = await fixture();
+    let installed!: (value: boolean) => void;
+    f.models.installed.mockReturnValueOnce(
+      new Promise((resolve) => {
+        installed = resolve;
+      }),
+    );
+    const pending = f.run('voice-model', 'small');
+    await vi.waitFor(() => expect(f.models.installed).toHaveBeenCalled());
+    f.control.cancel();
+    installed(false);
+    await pending;
+    expect(f.ui.confirm).not.toHaveBeenCalled();
+    expect(f.ui.custom).not.toHaveBeenCalled();
+    expect(f.probe).not.toHaveBeenCalled();
+  });
+  it('does not open progress UI after disposal during executable lookup', async () => {
+    const f = await fixture();
+    let executable!: (value: string | undefined) => void;
+    find.mockReturnValueOnce(
+      new Promise((resolve) => {
+        executable = resolve;
+      }),
+    );
+    const pending = f.run('voice-model', 'base');
+    await vi.waitFor(() => expect(find).toHaveBeenCalled());
+    f.control.dispose();
+    executable(undefined);
+    await pending;
+    expect(f.ui.confirm).not.toHaveBeenCalled();
+    expect(f.ui.custom).not.toHaveBeenCalled();
+    expect(f.probe).not.toHaveBeenCalled();
   });
   it('does not revive an old picker after session disposal', async () => {
     const f = await fixture();

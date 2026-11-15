@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MODELS, ModelStore } from './models.js';
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return { ...actual, createHash: vi.fn(actual.createHash) };
+});
 const dirs: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(dirs.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
 async function fixture(bytes = Buffer.from('test-model')) {
@@ -41,6 +47,77 @@ describe('verified opt-in model installation', () => {
     await f.store.install('small', new AbortController().signal);
     expect(f.fetcher).not.toHaveBeenCalled();
     expect(await f.store.installed('small')).toBe(true);
+  });
+  it('re-verifies legacy metadata without downloading or changing model preferences', async () => {
+    const f = await fixture();
+    await writeFile(f.store.path('small'), f.bytes);
+    await writeFile(
+      f.store.marker('small'),
+      JSON.stringify({
+        sha256: f.store.definitions.small.sha256,
+        bytes: f.bytes.length,
+        mtimeMs: (await stat(f.store.path('small'))).mtimeMs,
+      }),
+    );
+    expect(await f.store.installed('small')).toBe(true);
+    expect(f.fetcher).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(f.store.marker('small'), 'utf8'))).toMatchObject({
+      version: 2,
+      identity: expect.any(String),
+    });
+  });
+  it('does not migrate a legacy marker attached to corrupt bytes', async () => {
+    const f = await fixture();
+    await writeFile(f.store.path('small'), Buffer.alloc(f.bytes.length));
+    await writeFile(
+      f.store.marker('small'),
+      JSON.stringify({ sha256: f.store.definitions.small.sha256, bytes: f.bytes.length, mtimeMs: 0 }),
+    );
+    expect(await f.store.installed('small')).toBe(false);
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
+  it('does not mark a same-size replacement made after the hash as verified', async () => {
+    const f = await fixture();
+    await writeFile(f.store.path('small'), f.bytes);
+    const hash = createHash('sha256');
+    const digest = hash.digest.bind(hash);
+    vi.spyOn(hash, 'digest').mockImplementationOnce((encoding) => {
+      const value = digest(encoding);
+      const replacement = join(f.dir, 'replacement.bin');
+      writeFileSync(replacement, Buffer.alloc(f.bytes.length));
+      renameSync(replacement, f.store.path('small'));
+      return value;
+    });
+    vi.mocked(createHash).mockReturnValueOnce(hash);
+    await expect(f.store.install('small', new AbortController().signal)).rejects.toThrow('changed during verification');
+    expect(await f.store.installed('small')).toBe(false);
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
+  it('does not mark in-place mutations made after hashing as verified', async () => {
+    const f = await fixture();
+    await writeFile(f.store.path('small'), f.bytes);
+    const hash = createHash('sha256');
+    const digest = hash.digest.bind(hash);
+    vi.spyOn(hash, 'digest').mockImplementationOnce((encoding) => {
+      const value = digest(encoding);
+      writeFileSync(f.store.path('small'), Buffer.alloc(f.bytes.length));
+      return value;
+    });
+    vi.mocked(createHash).mockReturnValueOnce(hash);
+    await expect(f.store.install('small', new AbortController().signal)).rejects.toThrow('changed during verification');
+    expect(await f.store.installed('small')).toBe(false);
+  });
+  it('verifies actual downloaded disk bytes before replacing any previous file', async () => {
+    const f = await fixture();
+    await writeFile(f.store.path('small'), 'previous');
+    await expect(
+      f.store.install('small', new AbortController().signal, () => {
+        const temporary = readdirSync(f.dir).find((file) => file.endsWith('.partial'))!;
+        writeFileSync(join(f.dir, temporary), Buffer.alloc(f.bytes.length));
+      }),
+    ).rejects.toThrow('verification failed on disk');
+    expect(await readFile(f.store.path('small'), 'utf8')).toBe('previous');
+    expect(await f.store.installed('small')).toBe(false);
   });
   it('does not trust stale verification metadata after modification', async () => {
     const f = await fixture();

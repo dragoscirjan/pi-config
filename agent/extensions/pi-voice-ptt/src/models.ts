@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
+import type { BigIntStats } from 'node:fs';
+import { mkdir, open, readFile, rename, rm, stat, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { atomicJson, type ModelName } from './profile.js';
 
@@ -25,6 +25,7 @@ export const MODELS: Record<ModelName, ModelDefinition> = {
   medium: model('medium', 1533763059, '6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208'),
 };
 export const modelSize = (bytes: number) => `${Math.ceil(bytes / 1024 ** 2)} MiB`;
+const identity = (file: BigIntStats): string => [file.dev, file.ino, file.size, file.mtimeNs, file.ctimeNs].join(':');
 
 export class ModelStore {
   constructor(
@@ -39,23 +40,31 @@ export class ModelStore {
     return `${this.path(name)}.verified.json`;
   }
 
-  async installed(name: ModelName): Promise<boolean> {
+  async installed(name: ModelName, signal = new AbortController().signal): Promise<boolean> {
+    signal.throwIfAborted();
     try {
-      const file = await stat(this.path(name));
+      const file = await stat(this.path(name), { bigint: true });
       const verified = JSON.parse(await readFile(this.marker(name), 'utf8')) as {
+        version?: number;
         sha256: string;
         bytes: number;
-        mtimeMs: number;
+        identity?: string;
       };
+      signal.throwIfAborted();
       const expected = this.definitions[name];
-      if (!verified || typeof verified !== 'object') return false;
-      return (
-        file.isFile() &&
-        file.size === expected.bytes &&
-        verified.bytes === file.size &&
-        verified.sha256 === expected.sha256 &&
-        verified.mtimeMs === file.mtimeMs
-      );
+      if (
+        !verified ||
+        typeof verified !== 'object' ||
+        !file.isFile() ||
+        file.size !== BigInt(expected.bytes) ||
+        verified.bytes !== expected.bytes ||
+        verified.sha256 !== expected.sha256
+      )
+        return false;
+      if (verified.version === 2) return verified.identity === identity(file);
+      if (verified.version !== undefined) return false;
+      // Legacy markers cannot prove file identity. Rehash once, never download or change preferences.
+      return await this.verifyExisting(name, signal);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) return false;
       throw error;
@@ -68,23 +77,12 @@ export class ModelStore {
     progress: (bytes: number, total: number) => void = () => {},
   ): Promise<string> {
     signal.throwIfAborted();
-    if (await this.installed(name)) return this.path(name);
+    if (await this.installed(name, signal)) return this.path(name);
     const expected = this.definitions[name];
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    // An existing manually downloaded official file can be verified without downloading it again.
+    // Verify manually supplied official files without downloading them again.
     try {
-      const existing = await stat(this.path(name));
-      if (existing.size === expected.bytes) {
-        const hash = createHash('sha256');
-        for await (const chunk of createReadStream(this.path(name))) {
-          signal.throwIfAborted();
-          hash.update(chunk);
-        }
-        if (hash.digest('hex') === expected.sha256) {
-          await this.markVerified(name);
-          return this.path(name);
-        }
-      }
+      if (await this.verifyExisting(name, signal)) return this.path(name);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
@@ -95,47 +93,101 @@ export class ModelStore {
       const response = await this.fetcher(expected.url, { signal: downloadSignal });
       if (!response.ok || !response.body) throw new Error(`Model download failed (HTTP ${response.status}).`);
       if (response.url && !response.url.startsWith('https://')) throw new Error('Model download must remain on HTTPS.');
-      const output = await open(temporary, 'wx', 0o600);
-      const hash = createHash('sha256');
-      let received = 0;
-      const reader = response.body.getReader();
+      const output = await open(temporary, 'wx+', 0o600);
       try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          downloadSignal.throwIfAborted();
-          received += value.byteLength;
-          if (received > expected.bytes) throw new Error('Downloaded model is larger than its pinned size.');
-          hash.update(value);
-          let offset = 0;
-          while (offset < value.length) {
-            const written = await output.write(value, offset, value.length - offset);
-            if (!written.bytesWritten) throw new Error('Could not write the model download.');
-            offset += written.bytesWritten;
+        const hash = createHash('sha256');
+        let received = 0;
+        const reader = response.body.getReader();
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            downloadSignal.throwIfAborted();
+            received += value.byteLength;
+            if (received > expected.bytes) throw new Error('Downloaded model is larger than its pinned size.');
+            hash.update(value);
+            let offset = 0;
+            while (offset < value.length) {
+              const written = await output.write(value, offset, value.length - offset);
+              if (!written.bytesWritten) throw new Error('Could not write the model download.');
+              offset += written.bytesWritten;
+            }
+            progress(received, expected.bytes);
           }
-          progress(received, expected.bytes);
+        } finally {
+          await reader.cancel().catch(() => {});
         }
+        downloadSignal.throwIfAborted();
+        if (received !== expected.bytes || hash.digest('hex') !== expected.sha256)
+          throw new Error('Model checksum/size verification failed; the download was not installed.');
+        await output.sync();
       } finally {
-        await reader.cancel().catch(() => {});
         await output.close();
       }
+      const staged = await open(temporary, 'r');
+      try {
+        if (!(await this.verifyFile(name, staged, downloadSignal, temporary)))
+          throw new Error('Model checksum/size verification failed on disk.');
+      } finally {
+        await staged.close();
+      }
       downloadSignal.throwIfAborted();
-      if (received !== expected.bytes || hash.digest('hex') !== expected.sha256)
-        throw new Error('Model checksum/size verification failed; the download was not installed.');
       await rename(temporary, this.path(name));
-      await this.markVerified(name);
+      if (!(await this.verifyExisting(name, downloadSignal)))
+        throw new Error('Model checksum/size verification failed on disk.');
       return this.path(name);
     } finally {
       await rm(temporary, { force: true });
     }
   }
 
-  private async markVerified(name: ModelName): Promise<void> {
-    const file = await stat(this.path(name));
+  /** Hash the descriptor and bind its unchanged metadata to the current destination. */
+  private async verifyFile(
+    name: ModelName,
+    file: FileHandle,
+    signal: AbortSignal,
+    destinationPath = this.path(name),
+  ): Promise<string | undefined> {
+    signal.throwIfAborted();
+    const before = await file.stat({ bigint: true });
+    const expected = this.definitions[name];
+    if (!before.isFile() || before.size !== BigInt(expected.bytes)) return undefined;
+    const hash = createHash('sha256');
+    for await (const chunk of file.createReadStream({ start: 0, autoClose: false })) {
+      signal.throwIfAborted();
+      hash.update(chunk);
+    }
+    const digest = hash.digest('hex');
+    signal.throwIfAborted();
+    const after = await file.stat({ bigint: true });
+    const destination = await stat(destinationPath, { bigint: true });
+    if (identity(before) !== identity(after) || identity(after) !== identity(destination))
+      throw new Error('Model changed during verification; retry after other model operations finish.');
+    return digest === expected.sha256 ? identity(after) : undefined;
+  }
+
+  private async verifyExisting(name: ModelName, signal: AbortSignal): Promise<boolean> {
+    const file = await open(this.path(name), 'r');
+    try {
+      const verified = await this.verifyFile(name, file, signal);
+      if (!verified) return false;
+      await this.markVerified(name, verified, signal);
+      return true;
+    } finally {
+      await file.close();
+    }
+  }
+
+  private async markVerified(name: ModelName, verified: string, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    if (identity(await stat(this.path(name), { bigint: true })) !== verified)
+      throw new Error('Model changed before verification could be recorded; retry.');
     await atomicJson(this.marker(name), {
+      version: 2,
       sha256: this.definitions[name].sha256,
-      bytes: file.size,
-      mtimeMs: file.mtimeMs,
+      bytes: this.definitions[name].bytes,
+      identity: verified,
     });
+    signal.throwIfAborted();
   }
 }

@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,11 +6,12 @@ import { createBackend, type OriginalVoiceCommand, type VoiceHost } from './back
 import type { VoiceBackend } from './controller.js';
 import type { InferenceService } from './inference.js';
 import { originalVoiceCommand, type VoiceModule } from './original-command.js';
+import { voiceManifest, verifyOriginalModel } from './original-model.js';
 import { withProvider } from './provider-context.js';
 import { scopedVoiceCommand } from './scoped-command.js';
 
 export { originalVoiceCommand } from './original-command.js';
-export const SUPPORTED_VOICE_VERSION = '2.15.0';
+export { SUPPORTED_VOICE_VERSION } from './original-model.js';
 interface I18nSDK {
   getActiveLocale(): string | undefined;
   applyLocale(locale: string | undefined): void;
@@ -25,17 +25,7 @@ export async function loadVoiceBackend(
   loadScoped: typeof scopedVoiceCommand = scopedVoiceCommand,
 ): Promise<VoiceBackend> {
   const require = createRequire(join(agentDir, 'npm', 'package.json'));
-  let manifest: string;
-  try {
-    manifest = require.resolve('@juicesharp/rpiv-voice/package.json');
-  } catch {
-    throw new Error('Install @juicesharp/rpiv-voice with Pi before enabling push-to-talk.');
-  }
-  const pkg = JSON.parse(await readFile(manifest, 'utf8')) as { version: string };
-  if (pkg.version !== SUPPORTED_VOICE_VERSION)
-    throw new Error(
-      `Push-to-talk supports rpiv-voice ${SUPPORTED_VOICE_VERSION}; found ${pkg.version}. Check adapter compatibility before upgrading.`,
-    );
+  const manifest = await voiceManifest(agentDir);
   let sdkPath: string;
   try {
     sdkPath = require.resolve('@juicesharp/rpiv-i18n');
@@ -62,15 +52,7 @@ export async function loadVoiceBackend(
     used = true;
     const provider = await inference?.prepare(signal, (message, level) => context.ui.notify(message, level), onFatal);
     if (!provider) {
-      if (inference) {
-        const model = (await import(pathToFileURL(join(dirname(manifest), 'audio/model-download.ts')).href)) as {
-          isModelDownloaded(): boolean;
-        };
-        if (!model.isModelDownloaded())
-          throw new Error(
-            'The original base model is not installed. Run /voice once, or use /voice-model base with whisper-server. Downloads never start while Space is held.',
-          );
-      }
+      if (inference) await verifyOriginalModel(agentDir, signal);
       return normal(args, ctx);
     }
     const locale = sdk.getActiveLocale();

@@ -44,6 +44,7 @@ export function registerSettingsCommands(pi: ExtensionAPI, controls: Controls): 
     title: string,
     work: (update: (message: string) => void) => Promise<T>,
   ): Promise<T> => {
+    signal.throwIfAborted();
     type Result = { ok: true; value: T } | { ok: false; error: unknown };
     const result = await ctx.ui.custom<Result>((tui, _theme, _keys, done) => {
       let message = title;
@@ -75,14 +76,18 @@ export function registerSettingsCommands(pi: ExtensionAPI, controls: Controls): 
     profile: VoiceProfile,
     signal: AbortSignal,
   ): Promise<boolean> => {
+    signal.throwIfAborted();
     const executable = await findServer(profile.serverPath);
+    signal.throwIfAborted();
     if (!executable) {
       if (profile.model === 'base' && profile.device !== 'gpu') return true; // Original base/CPU remains available.
       throw new Error(
         'Install a current whisper-server build, or set PI_VOICE_WHISPER_SERVER, before choosing this model/device.',
       );
     }
-    if (await inference.models.installed(profile.model)) return true;
+    const installed = await inference.models.installed(profile.model);
+    signal.throwIfAborted();
+    if (installed) return true;
     const definition = MODELS[profile.model];
     const accepted = await ctx.ui.confirm(
       `Download ${profile.model} (${modelSize(definition.bytes)})?`,
@@ -106,12 +111,15 @@ export function registerSettingsCommands(pi: ExtensionAPI, controls: Controls): 
       return;
     }
     const selectedAt = revision;
-    const wasActive = await controls.stop(ctx);
-    if (disposed || revision !== selectedAt) return;
     const abort = new AbortController();
     operation = abort;
+    let wasActive = false;
     try {
+      wasActive = await controls.stop(ctx);
+      abort.signal.throwIfAborted();
+      if (disposed || revision !== selectedAt) return;
       const next = update(await loadProfile(inference.paths));
+      abort.signal.throwIfAborted();
       if (!(await ensureModel(ctx, next, abort.signal))) return;
       const description = await cancellable(
         ctx,

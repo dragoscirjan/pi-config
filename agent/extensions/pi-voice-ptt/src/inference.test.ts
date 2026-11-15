@@ -48,12 +48,14 @@ async function fixture(device: VoiceProfile['device'] = 'auto') {
     workers.push(w);
     return w;
   });
+  const verifyOriginal = vi.fn<NonNullable<InferenceOptions['verifyOriginal']>>(async () => {});
   const service = new InferenceService({
     paths: { state: dir, profile: join(dir, 'preferences.json'), models: models.directory },
     store: models,
     readProfile: async () => profile,
     find: async () => process.execPath,
     start,
+    verifyOriginal,
   });
   services.push(service);
   const abort = new AbortController();
@@ -62,6 +64,7 @@ async function fixture(device: VoiceProfile['device'] = 'auto') {
   const provider = () => service.prepare(abort.signal, notice, fatal);
   return {
     service,
+    verifyOriginal,
     start,
     workers,
     provider,
@@ -85,6 +88,21 @@ describe('model/device provider policy', () => {
     f.profile({ version: 1, model: 'base', device: 'auto' });
     expect(await f.provider()).toBeUndefined();
     expect(f.service.describe()).toContain('CPU (original)');
+    expect(f.start).not.toHaveBeenCalled();
+  });
+  it('verifies native fallback before reporting successful setup', async () => {
+    const f = await fixture();
+    f.profile({ version: 1, model: 'base', device: 'cpu' });
+    const profile = await f.service.refresh();
+    expect(await f.service.probe(profile, f.abort.signal, f.notice)).toContain('CPU (original)');
+    expect(f.verifyOriginal).toHaveBeenCalledWith(f.abort.signal);
+    expect(f.start).not.toHaveBeenCalled();
+  });
+  it('rejects missing original models during native setup without starting a worker', async () => {
+    const f = await fixture();
+    f.profile({ version: 1, model: 'base', device: 'auto' });
+    f.verifyOriginal.mockRejectedValue(new Error('Run /voice once'));
+    await expect(f.service.probe(await f.service.refresh(), f.abort.signal, f.notice)).rejects.toThrow('/voice');
     expect(f.start).not.toHaveBeenCalled();
   });
   it('passes original language/thread settings into a CPU provider', async () => {
