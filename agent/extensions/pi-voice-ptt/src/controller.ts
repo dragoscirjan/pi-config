@@ -1,4 +1,4 @@
-export type VoicePhase = 'ready' | 'starting' | 'listening' | 'transcribing' | 'stopping' | 'off';
+export type VoicePhase = 'ready' | 'holding' | 'starting' | 'listening' | 'transcribing' | 'stopping' | 'off';
 export type SpaceEvent = 'press' | 'repeat' | 'release';
 
 export interface Recording {
@@ -9,14 +9,18 @@ export interface Recording {
 export interface VoiceBackend {
   getLocale?(): string | undefined;
   describe?(): string;
-  start(signal: AbortSignal, preview: (text: string) => void, onError: (error: Error) => void): Promise<Recording>;
+  start(
+    signal: AbortSignal,
+    preview: (text: string, audioLevel?: number) => void,
+    onError: (error: Error) => void,
+  ): Promise<Recording>;
   close(): void;
 }
 
 export interface ControllerOptions {
   backend: VoiceBackend;
   insert: (text: string) => void;
-  status: (phase: VoicePhase, preview?: string) => void;
+  status: (phase: VoicePhase, preview?: string, audioLevel?: number) => void;
   error: (message: string) => void;
   canCapture: () => boolean;
   holdMs?: number;
@@ -62,6 +66,7 @@ export class VoiceController {
       if (!this.suppressed) this.options.insert(' ');
       this.suppressed = false;
       const attempt = this.attempt;
+      if (!attempt) this.options.status('ready');
       if (attempt && !attempt.abort.signal.aborted) {
         if (!attempt.recording) {
           // Upstream mic initialization is asynchronous. Never begin a fresh capture after release.
@@ -80,10 +85,12 @@ export class VoiceController {
     this.pressed = true;
     this.suppressed = false;
     if (this.attempt) return; // A short tap still inserts a space while a previous decode drains.
+    this.options.status('holding');
     this.holdTimer = setTimeout(() => {
       this.holdTimer = undefined;
       if (!this.options.canCapture()) {
         this.suppressed = true;
+        this.options.status('ready');
         return;
       }
       this.suppressed = true;
@@ -97,6 +104,7 @@ export class VoiceController {
     this.clearHoldTimer();
     this.suppressed = true;
     this.options.insert(' ');
+    this.options.status('ready');
   }
 
   cancel(): boolean {
@@ -105,6 +113,7 @@ export class VoiceController {
     if (this.pressed) this.suppressed = true;
     const attempt = this.attempt;
     if (attempt) clearTimeout(attempt.limit);
+    if (!attempt && hadWork) this.options.status(this.active ? 'ready' : 'off');
     if (attempt && !attempt.abort.signal.aborted) {
       attempt.abort.abort();
       attempt.release();
@@ -162,9 +171,9 @@ export class VoiceController {
     try {
       const recording = await this.options.backend.start(
         attempt.abort.signal,
-        (text) => {
-          if (!attempt.abort.signal.aborted && !attempt.finishing && this.active)
-            this.options.status('listening', text);
+        (text, audioLevel) => {
+          if (attempt.recording && !attempt.abort.signal.aborted && !attempt.finishing && this.active)
+            this.options.status('listening', text, audioLevel);
         },
         (error) => {
           if (attempt.abort.signal.aborted) return;

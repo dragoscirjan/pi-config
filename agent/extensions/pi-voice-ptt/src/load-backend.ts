@@ -42,26 +42,34 @@ export async function loadVoiceBackend(
   if (existing && sdk.getActiveLocale() !== existing.locale) sdk.applyLocale(existing.locale);
   const normal = originalVoiceCommand(voice);
   let isolated: Promise<OriginalVoiceCommand> | undefined;
+  let native: Promise<OriginalVoiceCommand> | undefined;
   let used = false;
   const command: OriginalVoiceCommand = async (
     args,
     ctx,
     signal = new AbortController().signal,
     onFatal = () => {},
+    preview,
   ) => {
     used = true;
     const provider = await inference?.prepare(signal, (message, level) => context.ui.notify(message, level), onFatal);
-    if (!provider) {
-      if (inference) await verifyOriginalModel(agentDir, signal);
-      return normal(args, ctx);
-    }
+    if (!provider && !inference) return normal(args, ctx);
+    if (!provider) await verifyOriginalModel(agentDir, signal);
     const locale = sdk.getActiveLocale();
-    isolated ??= loadScoped(dirname(manifest));
-    const original = await isolated;
-    if (sdk.getActiveLocale() !== locale) sdk.applyLocale(locale);
+    const pending = provider
+      ? (isolated ??= loadScoped(dirname(manifest), {}, { inline: true }))
+      : (native ??= loadScoped(dirname(manifest), {}, { native: true, inline: true }));
+    let original: OriginalVoiceCommand;
+    try {
+      original = await pending;
+    } finally {
+      if (sdk.getActiveLocale() !== locale) sdk.applyLocale(locale);
+    }
     signal.throwIfAborted();
-    await withProvider(provider, () => original(args, ctx));
-    const failure = provider.error?.();
+    const run = () => original(args, ctx, signal, onFatal, preview);
+    if (provider) await withProvider(provider, run);
+    else await run();
+    const failure = provider?.error?.();
     if (failure && !signal.aborted) throw failure;
   };
   return createBackend({

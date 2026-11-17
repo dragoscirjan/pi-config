@@ -34,7 +34,7 @@ function fixture(
   };
   const command = vi.fn<OriginalVoiceCommand>(
     options.command ??
-      (async (_args, ctx) => {
+      (async (_args, ctx, _signal, _fatal, emit) => {
         lifecycle.push('original-preflight');
         await ctx.ui.custom((_tui, _theme, _keys, done) => {
           void (options.preflight ?? Promise.resolve()).then(() => done(undefined));
@@ -45,6 +45,7 @@ function fixture(
           expect(theme).toBe(ui.theme);
           expect(keys).toBe(host.keybindings);
           lifecycle.push('original-session');
+          emit?.(options.preview ?? 'original live words', 0.04);
           return component;
         });
         lifecycle.push(`original-${result.intent}`);
@@ -87,36 +88,34 @@ describe('adapter around the unchanged original /voice command', () => {
     const recording = await f.start();
     expect(f.lifecycle).toEqual(['original-preflight', 'original-session']);
     expect(f.ui.custom).not.toHaveBeenCalled();
-    expect(f.ui.setWidget).toHaveBeenCalledWith(expect.stringMatching(/^voice-ptt-session-/u), expect.any(Function));
+    expect(f.ui.setWidget).not.toHaveBeenCalled();
     expect(await recording.finish()).toBe('Original transcript.');
     expect(f.lifecycle).toEqual(['original-preflight', 'original-session', 'original-commit', 'original-cleanup']);
     expect(f.command).toHaveBeenCalledTimes(1);
     expect(f.ui.pasteToEditor).not.toHaveBeenCalled();
   });
 
-  it('preserves the original view but replaces modal hints with actual push-to-talk controls', async () => {
+  it('routes live state to the editor without showing an above-input panel', async () => {
     const f = fixture();
     const recording = await f.start();
-    const factory = f.ui.setWidget.mock.calls.at(-1)![1] as () => { render(width: number): string[] };
-    const lines = factory().render(80);
-    expect(lines[0]).toBe('original voice view');
-    expect(lines.at(-1)).toBe('Release Space: finish · Esc: cancel');
+    expect(f.preview).toHaveBeenCalledWith('original live words', 0.04);
+    expect(f.ui.setWidget).not.toHaveBeenCalled();
     recording.cancel();
     await tick();
   });
 
-  it('does not let old-session cleanup clear a newer session widget', async () => {
+  it('does not let old-session cleanup clear or publish into a newer input view', async () => {
     const old = fixture();
     const next = fixture();
     await old.start();
     await next.start();
-    const oldKey = old.ui.setWidget.mock.calls.at(-1)![0];
-    const newKey = next.ui.setWidget.mock.calls.at(-1)![0];
-    expect(oldKey).not.toBe(newKey);
+    const count = old.preview.mock.calls.length;
     old.backend.close();
+    old.command.mock.calls[0]![4]?.('late old words', 1);
     await tick();
-    expect(old.ui.setWidget.mock.calls.at(-1)![0]).toBe(oldKey);
-    expect(next.ui.setWidget.mock.calls.at(-1)![1]).toBeTypeOf('function');
+    expect(old.preview).toHaveBeenCalledTimes(count);
+    expect(old.ui.setWidget).not.toHaveBeenCalled();
+    expect(next.preview).toHaveBeenCalledWith('original live words', 0.04);
     next.backend.close();
     await tick();
   });
@@ -186,8 +185,8 @@ describe('adapter around the unchanged original /voice command', () => {
   it('does not display a repetitive foreign-script preview as trusted speech', async () => {
     const f = fixture({ preview: '\u001b[31m' + '日本語の中で、'.repeat(12) + '\u001b[0m' });
     const recording = await f.start();
-    const factory = f.ui.setWidget.mock.calls.at(-1)![1] as () => { render(width: number): string[] };
-    expect(factory().render(80).join(' ')).toContain('Unreliable voice preview');
+    expect(f.preview).toHaveBeenCalledWith('', 0.04);
+    expect(f.ui.setWidget).not.toHaveBeenCalled();
     recording.cancel();
     await tick();
   });
@@ -224,6 +223,6 @@ describe('adapter around the unchanged original /voice command', () => {
     f.backend.close();
     await tick();
     expect(f.lifecycle).toContain('original-cancel');
-    expect(f.ui.setWidget).toHaveBeenLastCalledWith(expect.stringMatching(/^voice-ptt-session-/u), undefined);
+    expect(f.ui.setWidget).not.toHaveBeenCalled();
   });
 });

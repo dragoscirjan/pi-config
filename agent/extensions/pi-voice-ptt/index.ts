@@ -4,7 +4,7 @@ import {
   type ExtensionCommandContext,
   type ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
-import { isKittyProtocolActive, truncateToWidth } from '@earendil-works/pi-tui';
+import { isKittyProtocolActive } from '@earendil-works/pi-tui';
 import type { VoiceHost } from './src/backend.js';
 import { VoiceController, type VoicePhase } from './src/controller.js';
 import { HoldToTalkEditor } from './src/editor.js';
@@ -15,6 +15,7 @@ import { registerSettingsCommands } from './src/settings-commands.js';
 const STATUS_KEY = 'voice-ptt';
 const LABELS: Record<Exclude<VoicePhase, 'off'>, string> = {
   ready: 'Voice armed · hold Space to talk',
+  holding: 'Voice hold Space · microphone off',
   starting: 'Voice starting · wait for Listening',
   listening: 'Voice listening · release Space to insert',
   transcribing: 'Voice transcribing…',
@@ -94,20 +95,10 @@ export default function (pi: ExtensionAPI): void {
         drainMs: 185_000,
         canCapture: () => editor?.focused === true,
         insert: (text) => editor?.insertDictation(text),
-        status: (phase, preview) => {
+        status: (phase, preview, audioLevel) => {
           currentPhase = phase;
           renderStatus();
-          ctx.ui.setWidget(
-            STATUS_KEY,
-            preview
-              ? [
-                  truncateToWidth(
-                    preview.replace(/\s+/gu, ' ').trim(),
-                    Math.max(20, (process.stdout.columns ?? 80) - 4),
-                  ),
-                ]
-              : undefined,
-          );
+          editor?.setVoiceState(phase, preview, audioLevel);
         },
         error: (message) => ctx.ui.notify(`Push-to-talk: ${message}`, 'error'),
       });
@@ -118,6 +109,7 @@ export default function (pi: ExtensionAPI): void {
       ownedEditorFactory = (tui, theme, keybindings) => {
         voiceHost = { tui, keybindings };
         editor = new HoldToTalkEditor([tui, theme, keybindings], active, () => tui.requestRender());
+        editor.setVoiceState(currentPhase);
         return editor;
       };
       ctx.ui.setEditorComponent(ownedEditorFactory);

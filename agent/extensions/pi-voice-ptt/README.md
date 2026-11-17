@@ -34,6 +34,19 @@ Selection commands temporarily disarm capture. They confirm downloads and probe 
 
 The footer shows the real initialized device (for example `small · GPU Vulkan0`), not merely the requested mode. `not started` means no worker has been initialized yet. `auto` in the language badge means the original i18n/voice flow has no explicit speech-language hint; use the existing `/languages` command to choose English when speaking English.
 
+## Input-native voice rail
+
+The input border acknowledges Space immediately, without claiming the microphone is already listening:
+
+- **Hold Space · mic off** during the short-tap threshold.
+- **Preparing voice** while the original preflight/model/microphone starts.
+- **`⟨▁▂▅▃▆▂▁▁⟩ Listening`** once capture is ready. The wave uses actual recent mic levels, not simulated activity or an animation timer.
+- **Decoding** after release, until the accepted final text is ready.
+
+Live words appear at the insertion point as a dim **`⟪provisional dictation⟫`** inside the input. This is render-only: the editor's real text, cursor, undo/history and submitted value never contain unaccepted words. The final accepted transcript is inserted once on release; Escape/cancellation removes the visual draft. Clicking a provisional row in fullscreen mode cancels it before treating that row as a real editing coordinate. Long previews wrap in a bounded, cursor-following input viewport, including narrow terminals and wide Unicode text.
+
+There is no longer a separate voice preview panel above the input.
+
 ## Safe defaults and fallback
 
 A fresh computer defaults to **base + auto**. No large model choice is copied from another machine, and no download is started while Space is held.
@@ -109,7 +122,7 @@ The adapter checks actual native GPU initialization messages after model health 
 
 ## How this extends the original workflow
 
-The existing original command owns microphone capture, resampling/VAD, its `VoiceSession`, partial/final decoding and commit/cancel cleanup. The companion hosts that original UI without stealing editor focus, replacing its modal footer with truthful hold-to-talk controls.
+The existing original command owns microphone capture, resampling/VAD, its `VoiceSession`, partial/final decoding and commit/cancel cleanup. Its UI factories still run for that lifecycle, but no modal or above-input voice panel is displayed. A scoped observer reads the original session's already-reduced transcript/partial text and audio level, then updates the main input. The original session instance and reducer remain the sole owners of voice state; the companion does not create a second capture/recognition workflow or parse screen text.
 
 For selected GGML inference, an isolated Jiti loader supplies **model and recognizer factories** through an async-local provider context. It does not mutate upstream exports, installed files, or shared module/transpile caches. The same command/session code runs with the selected provider. The version-checked adapter also extends the original fixed 10-second commit-drain budget to 180 seconds for slower large-model CPU decoding; the controller remains cancellable and bounded. Unexpected upstream contracts fail closed.
 

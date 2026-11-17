@@ -19,6 +19,7 @@ vi.mock('@earendil-works/pi-coding-agent', () => ({
   getAgentDir: () => '/test/agent',
   CustomEditor: class {
     focused = true;
+    invalidate() {}
   },
 }));
 vi.mock('@earendil-works/pi-tui', () => ({

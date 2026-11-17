@@ -39,6 +39,43 @@ describe('scoped original-session provider integration', () => {
     expect(result).toEqual(['one', 'two']);
     expect(() => currentProvider()).toThrow('outside');
   });
+  it.each([false, true])('observes the original session with native=%s without a second session', async (native) => {
+    const dir = await mkdtemp(join(tmpdir(), 'voice-inline-'));
+    dirs.push(dir);
+    await Promise.all(['command', 'audio', 'state'].map((part) => mkdir(join(dir, part))));
+    await writeFile(
+      join(dir, 'state/voice-session.ts'),
+      `export class VoiceSession { constructor(config) { this.state = { transcript: '', partialTranscript: '', audioLevel: 0 }; } dispatchAction(action) { Object.assign(this.state, action); } }`,
+    );
+    await writeFile(
+      join(dir, 'audio/stt-engine.ts'),
+      `export const createSttEngine = async () => ({ recognize: async () => 'native', release() {} });`,
+    );
+    await writeFile(
+      join(dir, 'audio/model-download.ts'),
+      `export const getModelPaths = () => ({ encoderPath: 'native', decoderPath: 'native', tokensPath: 'native' });`,
+    );
+    await writeFile(
+      join(dir, 'command/voice-command.ts'),
+      `import { VoiceSession } from '../state/voice-session.ts'; import { createSttEngine } from '../audio/stt-engine.ts'; import { getModelPaths } from '../audio/model-download.ts'; const COMMIT_DRAIN_TIMEOUT_MS = 10_000; export function registerVoiceCommand(api) { api.registerCommand('voice', {handler: async () => { const session = new VoiceSession({}); const engine = await createSttEngine(getModelPaths()); session.dispatchAction({ transcript: await engine.recognize(), partialTranscript: 'partial', audioLevel: 0.25 }); engine.release(); }}); }`,
+    );
+    const command = await scopedVoiceCommand(dir, {}, { native, inline: true });
+    const preview = vi.fn();
+    const run = () => command('', {} as never, new AbortController().signal, undefined, preview);
+    if (native) await run();
+    else await withProvider(provider('chosen.ggml'), run);
+    expect(preview).toHaveBeenCalledWith(`${native ? 'native' : 'chosen.ggml'} partial`, 0.25);
+  });
+  it('refuses a changed inline session import before loading or starting a session', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'voice-contract-'));
+    dirs.push(dir);
+    await mkdir(join(dir, 'command'));
+    await writeFile(
+      join(dir, 'command/voice-command.ts'),
+      'const COMMIT_DRAIN_TIMEOUT_MS = 10_000; export function registerVoiceCommand() {}',
+    );
+    await expect(scopedVoiceCommand(dir, {}, { inline: true })).rejects.toThrow('VoiceSession import contract');
+  });
   it('injects only its own command loader and leaves original files/cache untouched', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'voice-upstream-'));
     dirs.push(dir);

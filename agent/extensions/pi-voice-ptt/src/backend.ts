@@ -1,9 +1,8 @@
-import { randomUUID } from 'node:crypto';
-import { stripVTControlCharacters } from 'node:util';
 import type { ExtensionCommandContext, ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { truncateToWidth, type Component } from '@earendil-works/pi-tui';
+import type { Component } from '@earendil-works/pi-tui';
 import type { Recording, VoiceBackend } from './controller.js';
 import { transcriptProblem } from './quality.js';
+import type { VoicePreview } from './session-context.js';
 
 type CustomFactory = Parameters<ExtensionContext['ui']['custom']>[0];
 export interface VoiceHost {
@@ -15,6 +14,7 @@ export type OriginalVoiceCommand = (
   ctx: ExtensionCommandContext,
   signal?: AbortSignal,
   onFatal?: (error: Error) => void,
+  preview?: VoicePreview,
 ) => void | Promise<void>;
 
 export interface OriginalVoiceAdapter {
@@ -31,14 +31,13 @@ type DisposableComponent = Component & { dispose?(): void };
 
 /** Drive the original command and its VoiceSession. Own no microphone, recognizer, or i18n state. */
 export function createBackend(adapter: OriginalVoiceAdapter): VoiceBackend {
-  const SESSION_WIDGET = `voice-ptt-session-${randomUUID()}`;
   let busy = false;
   let closed = false;
   let cancelCurrent: (() => void) | undefined;
   return {
     getLocale: adapter.getLocale,
     ...(adapter.describe ? { describe: adapter.describe } : {}),
-    async start(signal, _preview, onError): Promise<Recording> {
+    async start(signal, preview, onError): Promise<Recording> {
       signal.throwIfAborted();
       if (closed) throw new Error('Voice backend is deactivated.');
       if (busy) throw new Error('The original voice session is still stopping. Please try again in a moment.');
@@ -67,7 +66,7 @@ export function createBackend(adapter: OriginalVoiceAdapter): VoiceBackend {
       signal.addEventListener('abort', cancel, { once: true });
 
       // The original command has two UI interactions: preflight splash, then VoiceSession.
-      // Host those unchanged components as a widget so they do not steal the hold key's focus.
+      // Instantiate them for the original lifecycle, but display voice state inside the main editor.
       const custom: ExtensionContext['ui']['custom'] = (factory) =>
         new Promise((resolve, reject) => {
           const interaction = ++stage;
@@ -77,7 +76,6 @@ export function createBackend(adapter: OriginalVoiceAdapter): VoiceBackend {
             if (settled) return;
             settled = true;
             if (interaction === 2) completeSession = undefined;
-            adapter.context.ui.setWidget(SESSION_WIDGET, undefined);
             component?.dispose?.();
             resolve(result);
           };
@@ -89,22 +87,6 @@ export function createBackend(adapter: OriginalVoiceAdapter): VoiceBackend {
                   return;
                 }
                 component = created;
-                if (!cancelled && !signal.aborted)
-                  adapter.context.ui.setWidget(SESSION_WIDGET, () => ({
-                    render(width) {
-                      const lines = created.render(width);
-                      if (interaction === 2 && transcriptProblem(stripVTControlCharacters(lines.join(' ')), locale)) {
-                        return [truncateToWidth('Unreliable voice preview; waiting for final transcription.', width)];
-                      }
-                      // In voice 2.15 the last row is the modal keyboard-hint bar. Its Enter/Space
-                      // actions do not apply to a non-focusing widget; show the actual controls instead.
-                      if (interaction === 2 && lines.length) {
-                        return [...lines.slice(0, -1), truncateToWidth('Release Space: finish · Esc: cancel', width)];
-                      }
-                      return lines;
-                    },
-                    invalidate: () => created.invalidate(),
-                  }));
                 if (interaction === 2) {
                   // Complete the original UI with its existing result contract. Its command still
                   // stops/drains the mic, finalizes speech, aborts, releases the engine and pastes.
@@ -149,14 +131,22 @@ export function createBackend(adapter: OriginalVoiceAdapter): VoiceBackend {
       });
       const cleanup = () => {
         signal.removeEventListener('abort', cancel);
-        adapter.context.ui.setWidget(SESSION_WIDGET, undefined);
         cancelCurrent = undefined;
         busy = false;
       };
       const completion = Promise.resolve().then(() =>
-        adapter.command('', context, signal, (error) => {
-          if (!cancelled && !signal.aborted) onError(error);
-        }),
+        adapter.command(
+          '',
+          context,
+          signal,
+          (error) => {
+            if (!cancelled && !signal.aborted) onError(error);
+          },
+          (text, level) => {
+            if (cancelled || signal.aborted || committing) return;
+            preview(transcriptProblem(text, locale) ? '' : text, level);
+          },
+        ),
       );
       completion.then(
         () => {
@@ -178,7 +168,6 @@ export function createBackend(adapter: OriginalVoiceAdapter): VoiceBackend {
       closed = true;
       cancelCurrent?.();
       adapter.dispose?.();
-      adapter.context.ui.setWidget(SESSION_WIDGET, undefined);
     },
   };
 }

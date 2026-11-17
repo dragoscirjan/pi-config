@@ -37,6 +37,30 @@ afterEach(() => {
 });
 
 describe('hold-to-talk controller', () => {
+  it('acknowledges press immediately without claiming the microphone is ready', async () => {
+    const f = fixture();
+    f.controller.space('press');
+    expect(f.status).toHaveBeenLastCalledWith('holding');
+    expect(f.backend.start).not.toHaveBeenCalled();
+    f.controller.cancel();
+    expect(f.status).toHaveBeenLastCalledWith('ready');
+  });
+  it('does not turn an early observer tick into a false Listening state', async () => {
+    const pending = deferred<Recording>();
+    let observe!: (text: string, level?: number) => void;
+    const start = vi.fn((_signal, preview) => {
+      observe = preview;
+      return pending.promise;
+    });
+    const f = fixture({ backend: { start, close: vi.fn() } });
+    await hold(f.controller);
+    observe('', 0);
+    expect(f.status).toHaveBeenLastCalledWith('starting');
+    pending.resolve(f.recording);
+    await vi.advanceTimersByTimeAsync(0);
+    observe('real words', 0.03);
+    expect(f.status).toHaveBeenLastCalledWith('listening', 'real words', 0.03);
+  });
   it('does not open the microphone merely by activating', () => {
     const f = fixture();
     expect(f.backend.start).not.toHaveBeenCalled();
@@ -103,7 +127,7 @@ describe('hold-to-talk controller', () => {
     const preview = f.backend.start.mock.calls[0]![1] as (text: string) => void;
     preview('partial');
     expect(f.insert).not.toHaveBeenCalled();
-    expect(f.status).toHaveBeenLastCalledWith('listening', 'partial');
+    expect(f.status).toHaveBeenLastCalledWith('listening', 'partial', undefined);
     f.controller.space('release');
     await vi.advanceTimersByTimeAsync(0);
     preview('stale partial');
