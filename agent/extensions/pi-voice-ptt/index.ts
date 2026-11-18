@@ -114,7 +114,7 @@ export default function (pi: ExtensionAPI): void {
       };
       ctx.ui.setEditorComponent(ownedEditorFactory);
       ctx.ui.notify(
-        'Push-to-talk enabled. Hold Space (~400 ms), wait for Listening, speak, then release. /voice-model and /voice-device configure this computer.',
+        'Push-to-talk enabled. Hold Space (~1 second), wait for Listening, speak, then release. /voice-model and /voice-device configure this computer.',
         'info',
       );
     } catch (error) {
