@@ -26,7 +26,7 @@ function fixture(overrides: Partial<ControllerOptions> = {}) {
 
 async function hold(controller: VoiceController) {
   controller.space('press');
-  await vi.advanceTimersByTimeAsync(400);
+  await vi.advanceTimersByTimeAsync(1000);
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -67,6 +67,25 @@ describe('hold-to-talk controller', () => {
     expect(f.status).toHaveBeenLastCalledWith('ready');
   });
 
+  it('waits a full second before starting the voice backend', async () => {
+    const f = fixture();
+    f.controller.space('press');
+    await vi.advanceTimersByTimeAsync(999);
+    expect(f.backend.start).not.toHaveBeenCalled();
+    expect(f.status).toHaveBeenLastCalledWith('holding');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.backend.start).toHaveBeenCalledTimes(1);
+  });
+  it('treats a release just before one second as an ordinary space with no delayed activation', async () => {
+    const f = fixture();
+    f.controller.space('press');
+    await vi.advanceTimersByTimeAsync(999);
+    f.controller.space('release');
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(f.insert).toHaveBeenCalledExactlyOnceWith(' ');
+    expect(f.backend.start).not.toHaveBeenCalled();
+    expect(f.status).toHaveBeenLastCalledWith('ready');
+  });
   it('preserves short Space taps without opening a microphone', async () => {
     const f = fixture();
     f.controller.space('press');
@@ -93,7 +112,9 @@ describe('hold-to-talk controller', () => {
     await vi.advanceTimersByTimeAsync(250);
     f.controller.space('repeat');
     f.controller.space('press');
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(749);
+    expect(f.backend.start).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     expect(f.backend.start).toHaveBeenCalledTimes(1);
     expect(f.insert).not.toHaveBeenCalled();
   });

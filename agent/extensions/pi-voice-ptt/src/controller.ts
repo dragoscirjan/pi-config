@@ -95,7 +95,7 @@ export class VoiceController {
       }
       this.suppressed = true;
       this.begin();
-    }, this.options.holdMs ?? 400);
+    }, this.options.holdMs ?? 1000);
   }
 
   /** Preserve rapid typing when the next character arrives before Space's release. */

@@ -28,7 +28,7 @@ Requires **Pi 1.5.0+, Node 22.19+**, the interactive terminal UI and a terminal 
 | `/voice-device gpu`                            | Require initialized hardware GPU support; never silently use CPU      |
 | `/voice-model status` / `/voice-device status` | Show saved choices, actual backend state and local storage paths      |
 
-After `/reload`, run `/voice-activate`, hold **Space for about 400 ms**, wait for **Listening**, speak, then release. The accepted final transcript is inserted at the cursor, **not submitted**. Short Space taps still insert spaces. Escape cancels; submission, exit, suspension, session shutdown and loss of focus inside Pi cancel pending dictation.
+After `/reload`, run `/voice-activate`, hold **Space for about one second**, wait for **Listening**, speak, then release. The accepted final transcript is inserted at the cursor, **not submitted**. Short Space taps still insert spaces. Escape cancels; submission, exit, suspension, session shutdown and loss of focus inside Pi cancel pending dictation.
 
 Selection commands temporarily disarm capture. They confirm downloads and probe the selected backend **without opening a microphone**, then save only on success. Native base/CPU fallback is checked using upstream model-installation and integrity checks, without downloading or opening a microphone; missing models require an explicit `/voice` setup first. If voice was armed, it is rearmed afterward. Cancelling setup leaves it disarmed and preserves the saved choice.
 
@@ -38,7 +38,7 @@ The footer shows the real initialized device (for example `small · GPU Vulkan0`
 
 The input border acknowledges Space immediately, without claiming the microphone is already listening:
 
-- **Hold Space · mic off** during the short-tap threshold.
+- **Hold Space · mic off** during the one-second hold threshold. Releasing sooner inserts an ordinary space without activating voice.
 - **Preparing voice** while the original preflight/model/microphone starts.
 - **`⟨▁▂▅▃▆▂▁▁⟩ Listening`** once capture is ready. The wave uses actual recent mic levels, not simulated activity or an animation timer.
 - **Decoding** after release, until the accepted final text is ready.
