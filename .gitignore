@@ -1,5 +1,8 @@
 node_modules/
 
+# npm release artifacts
+*.tgz
+
 # Installer-generated Pi launcher, managed releases, and downloaded model weights
 /agent/bin/
 /agent/install/

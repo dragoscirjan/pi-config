@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-for cmd in format:fix lint:fix; do
+# Validate without rewriting files or staging unrelated/partially staged work.
+for cmd in format lint; do
 	npm run "$cmd"
 done
-
-git add -A

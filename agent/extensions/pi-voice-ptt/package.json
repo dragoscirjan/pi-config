@@ -1,0 +1,50 @@
+{
+  "name": "@dragoscirjan/pi-voice-ptt",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Additive hold-to-talk companion for rpiv-voice; preserves /voice.",
+  "license": "MIT",
+  "author": "dragoscirjan",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "keywords": ["pi-package", "pi-extension", "voice", "whisper", "push-to-talk"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dragoscirjan/pi-config.git",
+    "directory": "agent/extensions/pi-voice-ptt"
+  },
+  "homepage": "https://github.com/dragoscirjan/pi-config/tree/main/agent/extensions/pi-voice-ptt",
+  "bugs": {
+    "url": "https://github.com/dragoscirjan/pi-config/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": ["index.ts", "src/**/*.ts", "!src/**/*.test.ts", "README.md", "CHANGELOG.md", "LICENSE"],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "@juicesharp/rpiv-i18n": "^2.15.0",
+    "@juicesharp/rpiv-voice": "2.15.0"
+  },
+  "peerDependenciesMeta": {
+    "@juicesharp/rpiv-i18n": {
+      "optional": true
+    },
+    "@juicesharp/rpiv-voice": {
+      "optional": true
+    }
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "jiti": "^2.7.0"
+  }
+}

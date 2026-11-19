@@ -1,6 +1,7 @@
 {
   "name": "pi-model-recommend",
   "version": "1.0.0",
+  "private": true,
   "description": "Smart model recommendation and failover for Pi",
   "main": "index.ts",
   "type": "module",

@@ -66,6 +66,14 @@ pi mcp list
 
 The configuration uses environment-variable placeholders for credentials, so secrets remain outside the repository. Its Playwright entry calls a Node launcher that uses the system Chromium path on NixOS and Playwright's default configuration elsewhere. The Excalidraw entry calls a Node launcher that clones into `~/.local/opt/excalidraw-mcp`, installs and builds the checkout when needed, then starts its stdio server.
 
+## npm releases
+
+The repository stays a monorepo. `@dragoscirjan/pi-voice-ptt` is prepared for independent npm releases; the config root and other workspaces remain private. Publishing is disabled until the owner completes the one-time npm/GitHub setup.
+
+The [voice companion](agent/extensions/pi-voice-ptt/README.md) offers hold-Space dictation, `/voice-model` and `/voice-device`. Model/device choices and weights stay local to each computer, not in shared Pi settings. Linux/AMD Vulkan inference is hardware-verified; macOS/Windows GPU paths still need hardware validation.
+
+See [RELEASING.md](RELEASING.md) for package audits, Changesets, trusted publishing, and avoiding duplicate local/npm installations.
+
 ## Notes
 
 - Machine-specific runtime files such as `agent/telegram.json`, `agent/trust.json`, and `agent/models-store.json` are ignored and must not be committed.
