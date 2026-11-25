@@ -7,6 +7,7 @@ import {
 import { isKittyProtocolActive } from '@earendil-works/pi-tui';
 import type { VoiceHost } from './src/backend.js';
 import { VoiceController, type VoicePhase } from './src/controller.js';
+import { voiceDependencyWarning } from './src/dependencies.js';
 import { HoldToTalkEditor } from './src/editor.js';
 import { InferenceService } from './src/inference.js';
 import { loadVoiceBackend } from './src/load-backend.js';
@@ -50,6 +51,11 @@ export default function (pi: ExtensionAPI): void {
   const activate = async (ctx: ExtensionCommandContext): Promise<void> => {
     if (!ctx.hasUI || ('mode' in ctx && ctx.mode !== 'tui')) {
       ctx.ui.notify('Push-to-talk requires the interactive terminal UI.', 'error');
+      return;
+    }
+    const dependencyWarning = voiceDependencyWarning(getAgentDir());
+    if (dependencyWarning) {
+      ctx.ui.notify(dependencyWarning, 'warning');
       return;
     }
     if (!isKittyProtocolActive()) {

@@ -3,13 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import register from '../index.js';
 import type { VoiceBackend } from './controller.js';
 
-const { load, kitty } = vi.hoisted(() => ({ load: vi.fn(), kitty: vi.fn(() => true) }));
+const { load, kitty, dependencyWarning, refresh } = vi.hoisted(() => ({
+  load: vi.fn(),
+  kitty: vi.fn(() => true),
+  dependencyWarning: vi.fn(),
+  refresh: vi.fn(async () => ({ version: 1, model: 'base', device: 'auto' })),
+}));
+vi.mock('./dependencies.js', () => ({ voiceDependencyWarning: dependencyWarning }));
 vi.mock('./load-backend.js', () => ({ loadVoiceBackend: load }));
 vi.mock('./inference.js', () => ({
   InferenceService: class {
     paths = { state: '/test/state', models: '/test/models', profile: '/test/preferences.json' };
     models = {};
-    refresh = vi.fn(async () => ({ version: 1, model: 'base', device: 'auto' }));
+    refresh = refresh;
     close = vi.fn(async () => {});
     describe = () => 'base · auto (not started)';
     subscribe = () => () => {};
@@ -62,6 +68,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   kitty.mockReturnValue(true);
+  dependencyWarning.mockReturnValue(undefined);
   load.mockResolvedValue({ start: vi.fn(), close: vi.fn() } satisfies VoiceBackend);
 });
 afterEach(async () => {
@@ -75,7 +82,28 @@ describe('additive extension commands', () => {
     const f = fixture();
     expect([...f.commands.keys()]).toEqual(['voice-activate', 'voice-deactivate', 'voice-model', 'voice-device']);
     expect(load).not.toHaveBeenCalled();
+    expect(dependencyWarning).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(f.ui.notify).not.toHaveBeenCalled();
     expect(f.ui.setEditorComponent).not.toHaveBeenCalled();
+  });
+
+  it('warns about missing dependencies on activation before initializing voice', async () => {
+    const f = fixture();
+    const warning = 'Missing required Pi extensions. Run pi install npm:@juicesharp/rpiv-voice@2.15.0';
+    dependencyWarning.mockReturnValue(warning);
+    await f.run('voice-activate');
+    expect(dependencyWarning).toHaveBeenCalledExactlyOnceWith('/test/agent');
+    expect(f.ui.notify).toHaveBeenCalledExactlyOnceWith(warning, 'warning');
+    expect(load).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(f.ui.setStatus).not.toHaveBeenCalled();
+    expect(f.ui.setEditorComponent).not.toHaveBeenCalled();
+
+    dependencyWarning.mockReturnValue(undefined);
+    await f.run('voice-activate');
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(f.ui.setEditorComponent).toHaveBeenCalledTimes(1);
   });
 
   it('activates once and restores the normal editor on deactivate', async () => {
