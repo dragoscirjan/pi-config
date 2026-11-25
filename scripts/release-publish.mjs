@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkRelease, REPOSITORY, ROOT } from './release-check.mjs';
 import releaseConfig from './release-config.mjs';
+import { recoverTaggedRelease } from './release-recover.mjs';
 
 export function assertPublishEnvironment(env) {
   assert.equal(env.GITHUB_ACTIONS, 'true', 'Publishing is CI-only. See RELEASING.md.');
@@ -30,6 +31,8 @@ export async function publishRelease(env = process.env) {
   assertPublishEnvironment(env);
   assertTestedCommit(env, execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }));
   checkRelease();
+  const recovered = await recoverTaggedRelease({ cwd: ROOT, env });
+  if (recovered) return recovered;
   const { default: semanticRelease } = await import('semantic-release');
   return semanticRelease(releaseConfig, { cwd: ROOT, env });
 }

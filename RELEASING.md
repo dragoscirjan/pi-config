@@ -17,7 +17,7 @@ There is no separate version PR, manual version bump, or `NPM_PUBLISH_ENABLED` v
 | `feat: ...`                                 | Minor        |
 | `fix: ...`, docs, chores, or other commits  | Patch        |
 
-Every new successful `main` push is eligible for a release, including documentation/tooling changes. A retry with no commits since the last release does not create another version. Keep Conventional Commit messages when squash-merging; for merge commits, the underlying commits are also analyzed.
+Every new successful `main` push is eligible for a release, including documentation/tooling changes. A retry with no commits since the last release does not create another version. Because semantic-release pushes its tag before publication, retries first reconcile the exact tested HEAD's package tag with npm and GitHub: missing outputs are published at the **same version**, existing outputs are not duplicated, and the tag is never deleted or moved. Registry/API errors fail the job rather than being treated as an unpublished or successful release. Keep Conventional Commit messages when squash-merging; for merge commits, the underlying commits are also analyzed.
 
 Tags have the form `@dragoscirjan/pi-voice-ptt@1.2.3`. Tags and published npm metadata are the authoritative release versions. The committed package/lockfile keep the development baseline: generated versions are **not** committed back to `main`, so publishing cannot trigger a release loop or require a branch-protection bypass. Generated release notes live in GitHub releases; the checked-in changelog retains the initial package history.
 
@@ -46,7 +46,7 @@ The first package does not exist on npm yet, so its trusted publisher cannot be 
 
 No permission for Actions to create PRs is needed. Only the release job has `contents: write` and `id-token: write`; CI stays read-only. Checkout does not persist a GitHub credential. npm authentication is exposed only to the publish step.
 
-If npm authentication is missing or misconfigured, Release **fails visibly** rather than silently skipping. A PR cannot create an npm token or configure npm trusted publishing on behalf of the scope owner. Both workflows pin Node 24 and npm 11.21.2; the lockfile pins the Node-24-compatible semantic-release 25 toolchain and plugins.
+If npm authentication is missing or misconfigured, Release **fails visibly** rather than silently skipping. A PR cannot create an npm token or configure npm trusted publishing on behalf of the scope owner. Both workflows pin Node 24 and npm 11.21.2; the lockfile pins the Node-24-compatible semantic-release 25 toolchain and plugins. Keep the Conventional Commits preset on major 9 while release-notes-generator uses changelog writer 8; preset 10 requires writer 9.
 
 ## Local checks and maintenance
 
@@ -57,7 +57,7 @@ npm run test:release    # artifact/auth/workflow/SemVer regression tests
 npm run release:check   # real npm dry-run packlist and import audit
 ```
 
-The release tests exercise initial/patch/minor/major versions and actual tag creation against a temporary **local** Git remote. Their npm plugin has publication disabled; they never publish to npm or GitHub. Physical microphone/GPU behavior still needs platform-specific manual verification.
+The release tests exercise initial/patch/minor/major versions, actual tag creation, and recovery from a publication failure **after** the tag push against a temporary **local** Git remote. Recovery tests mock npm/GitHub output state and verify that retries preserve tags and do not duplicate successful publication. Their npm plugin has publication disabled; they never publish to npm or GitHub. Physical microphone/GPU behavior still needs platform-specific manual verification.
 
 `npm run release:publish` refuses workstation invocation, non-main refs, failed/untrusted CI events, and any checkout that differs from the successful CI SHA. It is not a local release command.
 
