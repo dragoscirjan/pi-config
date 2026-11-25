@@ -13,7 +13,7 @@ import {
   validateRelativeImports,
   WORKSPACE,
 } from './release-check.mjs';
-import { assertPublishEnvironment, assertTrustedNpmVersion } from './release-publish.mjs';
+import { assertPublishEnvironment, assertTestedCommit } from './release-publish.mjs';
 
 function manifests() {
   return {
@@ -54,7 +54,12 @@ function ciEnvironment() {
     GITHUB_ACTIONS: 'true',
     GITHUB_REPOSITORY: REPOSITORY,
     GITHUB_REF: 'refs/heads/main',
-    NPM_PUBLISH_ENABLED: 'true',
+    GITHUB_EVENT_NAME: 'workflow_run',
+    RELEASE_EVENT: 'push',
+    RELEASE_BRANCH: 'main',
+    RELEASE_REPOSITORY: REPOSITORY,
+    RELEASE_CONCLUSION: 'success',
+    RELEASE_SHA: 'a'.repeat(40),
     ACTIONS_ID_TOKEN_REQUEST_URL: 'test-url',
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
   };
@@ -159,18 +164,37 @@ describe('publishing cannot run accidentally', () => {
   for (const [key, value] of [
     ['GITHUB_REPOSITORY', 'someone/fork'],
     ['GITHUB_REF', 'refs/heads/feature'],
-    ['NPM_PUBLISH_ENABLED', 'false'],
+    ['GITHUB_EVENT_NAME', 'push'],
+    ['RELEASE_EVENT', 'pull_request'],
+    ['RELEASE_EVENT', 'workflow_dispatch'],
+    ['RELEASE_BRANCH', 'feature'],
+    ['RELEASE_REPOSITORY', 'someone/fork'],
+    ['RELEASE_CONCLUSION', 'failure'],
+    ['RELEASE_CONCLUSION', 'cancelled'],
+    ['RELEASE_CONCLUSION', 'skipped'],
+    ['RELEASE_SHA', 'main'],
     ['ACTIONS_ID_TOKEN_REQUEST_TOKEN', ''],
+    ['ACTIONS_ID_TOKEN_REQUEST_URL', ''],
   ]) {
     it(`rejects unsafe ${key}`, () => {
       assert.throws(() => assertPublishEnvironment({ ...ciEnvironment(), [key]: value }));
     });
   }
-  it('accepts only the intended trusted-publishing environment', () => {
+  it('accepts trusted publishing without an opt-in variable', () => {
     assertPublishEnvironment(ciEnvironment());
-    assertTrustedNpmVersion('11.21.2');
-    assertTrustedNpmVersion('11.21.0');
-    assert.throws(() => assertTrustedNpmVersion('12.2.2'), /Changesets CLI v2/u);
-    assert.throws(() => assertTrustedNpmVersion('11.19.1'), /npm >=11.21/u);
+  });
+  it('allows a one-time token bootstrap in the same successful CI context', () => {
+    const env = ciEnvironment();
+    delete env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    delete env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    assert.throws(() => assertPublishEnvironment(env), /NPM_TOKEN bootstrap/u);
+    env.NPM_TOKEN = 'test-bootstrap-token';
+    assertPublishEnvironment(env);
+    assert.throws(() => assertPublishEnvironment({ ...env, RELEASE_CONCLUSION: 'failure' }));
+  });
+  it('requires the exact commit tested by CI', () => {
+    const env = ciEnvironment();
+    assertTestedCommit(env, `${env.RELEASE_SHA}\n`);
+    assert.throws(() => assertTestedCommit(env, 'b'.repeat(40)), /different from the successful CI run/u);
   });
 });
