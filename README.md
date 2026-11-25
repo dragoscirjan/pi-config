@@ -72,7 +72,7 @@ The repository stays a monorepo. `@dragoscirjan/pi-voice-ptt` is prepared for in
 
 The [voice companion](agent/extensions/pi-voice-ptt/README.md) offers hold-Space dictation, `/voice-model` and `/voice-device`. Model/device choices and weights stay local to each computer, not in shared Pi settings. Linux/AMD Vulkan inference is hardware-verified; macOS/Windows GPU paths still need hardware validation.
 
-See [RELEASING.md](RELEASING.md) for package audits, Changesets, trusted publishing, and avoiding duplicate local/npm installations.
+See [RELEASING.md](RELEASING.md) for automatic semantic-versioned releases after successful main-push CI, npm bootstrap/trusted publishing, package audits, and avoiding duplicate local/npm installations.
 
 ## Notes
 

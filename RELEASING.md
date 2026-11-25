@@ -1,75 +1,67 @@
-# npm releases from this repository
+# Automatic npm releases
 
-This repository is a monorepo. No extension needs its own Git repository.
+Only **`@dragoscirjan/pi-voice-ptt`**, from `agent/extensions/pi-voice-ptt`, is approved for public npm publication. The repository root and other workspaces stay private. Models, backend executables, machine preferences, tests, and personal configuration are never bundled.
 
-## Publication boundary
+## Push-to-release flow
 
-Only **`@dragoscirjan/pi-voice-ptt`**, from `agent/extensions/pi-voice-ptt`, is approved for npm publication. It uses the MIT license and independent versions. The repository root and the two other workspaces are private; Changesets also ignores those workspaces.
+1. Push or merge changes to `main` in `dragoscirjan/pi-config`.
+2. The existing **CI** workflow runs lint, formatting, all tests, voice typechecking, and the npm artifact audit on **Linux, macOS, and Windows**.
+3. Only after that entire workflow succeeds, **Release** checks out its exact tested SHA and runs semantic-release. Failed, cancelled, skipped, fork, PR, and manually dispatched CI runs cannot publish.
+4. semantic-release calculates the next version from commits since the previous package tag, updates the voice package's version in the release checkout, audits the prepared package again, publishes it to npm, and creates a Git tag and GitHub release with generated notes.
 
-`npm run release:check` asks npm for its actual dry-run packlist, checks the package identity and provenance metadata, and permits only the entrypoint, runtime TypeScript, README, changelog, and license. It rejects tests, hidden files, personal config, dependencies, models, oversized artifacts, and missing relative imports. It never publishes.
+There is no separate version PR, manual version bump, or `NPM_PUBLISH_ENABLED` variable. The first release is **`1.0.0`**. Subsequent releases use the highest applicable bump in the push:
 
-The package reuses the existing voice/i18n workflow with machine-local model/device selection and an isolated whisper.cpp provider. Models, backend executables and preferences are never bundled. CI uses fake downloads/workers; physical GPU/microphone support is verified separately on each platform.
+| Commit message                              | Version bump |
+| ------------------------------------------- | ------------ |
+| `feat!: ...` or a `BREAKING CHANGE:` footer | Major        |
+| `feat: ...`                                 | Minor        |
+| `fix: ...`, docs, chores, or other commits  | Patch        |
 
-## One-time owner setup
+Every new successful `main` push is eligible for a release, including documentation/tooling changes. A retry with no commits since the last release does not create another version. Because semantic-release pushes its tag before publication, retries first reconcile the exact tested HEAD's package tag with npm and GitHub: missing outputs are published at the **same version**, existing outputs are not duplicated, and the tag is never deleted or moved. Registry/API errors fail the job rather than being treated as an unpublished or successful release. Keep Conventional Commit messages when squash-merging; for merge commits, the underlying commits are also analyzed.
 
-Publishing is **disabled by default**. The release workflow skips all release work until the repository variable `NPM_PUBLISH_ENABLED` equals `true`. No npm credentials are committed or required for CI checks.
+Tags have the form `@dragoscirjan/pi-voice-ptt@1.2.3`. Tags and published npm metadata are the authoritative release versions. The committed package/lockfile keep the development baseline: generated versions are **not** committed back to `main`, so publishing cannot trigger a release loop or require a branch-protection bypass. Generated release notes live in GitHub releases; the checked-in changelog retains the initial package history.
 
-1. Confirm that you own the npm user/organization `@dragoscirjan` and have permission to publish public packages there.
-2. Commit and push this setup. Review the Linux/macOS/Windows CI results. The CI matrix checks code and packaging, not microphone or GPU hardware.
-3. Inspect the package locally:
+Release jobs are serialized and do not cancel an active publication. CI may cancel superseded checks. semantic-release also checks the remote branch before releasing; if the tested SHA has fallen behind `main`, it skips it and waits for the newer push's successful CI. Never replace the tested checkout with the latest untested branch head.
 
-   ```sh
-   npm ci --ignore-scripts
-   npm run release:verify
-   ```
+## One-time npm owner setup
 
-4. Bootstrap the first package publication from an authenticated workstation. **The following command actually publishes to npm; run it only after reviewing the dry-run result.** The initial version is `1.0.0`.
+The first package does not exist on npm yet, so its trusted publisher cannot be configured in advance. Bootstrap **through the same CI workflow**, not a manual workstation publication:
 
-   ```sh
-   npm login
-   npm whoami
-   npm publish --workspace @dragoscirjan/pi-voice-ptt --access public --registry https://registry.npmjs.org/ --provenance=false
-   ```
+1. Confirm ownership of the npm scope `@dragoscirjan` and permission to create public packages.
+2. Create a short-lived npm granular access token with read/write permission to create/publish this package and permission to bypass 2FA for noninteractive publishing. Its package/scope selection must permit the **new** package, not just existing packages. Use the narrowest permissions npm offers for this bootstrap.
+3. Add it as the GitHub Actions secret **`NPM_TOKEN`** in `dragoscirjan/pi-config` (repository secret or secret in the `npm` environment). Do not put it in a file, commit, PR, or chat. GitHub supplies `GITHUB_TOKEN` automatically.
+4. Configure the GitHub environment **`npm`**, restricting deployment branches to `main`. GitHub can create it when first referenced; configure branch restrictions before merging this workflow. A required reviewer adds a manual approval, so omit reviewers for fully automatic releases.
+5. Merge this setup to `main`. Once all three CI platforms pass, Release publishes `1.0.0` automatically using the token. If an earlier attempt failed authentication, add/fix the secret and rerun its failed Release job while that tested SHA is still current.
+6. In the npm package's **Settings → Trusted Publisher**, configure:
 
-   Complete npm's authentication/2FA prompts. This one-time manual bootstrap establishes the package so its trusted-publisher settings can be configured. It has no CI provenance attestation; subsequent CI releases do.
+   | Field             | Value                                          |
+   | ----------------- | ---------------------------------------------- |
+   | Organization/user | `dragoscirjan`                                 |
+   | Repository        | `pi-config`                                    |
+   | Workflow filename | `release.yml`                                  |
+   | Environment       | `npm`                                          |
+   | Allowed actions   | Publishing and dist-tag management, if offered |
 
-5. In the npm package's **Settings → Trusted Publisher**, configure GitHub Actions:
+7. Delete the `NPM_TOKEN` GitHub secret and revoke the bootstrap token. Future releases use short-lived GitHub OIDC credentials, with provenance attestations. Do not remove the secret until trusted publishing is configured.
 
-   | Field             | Value                                                      |
-   | ----------------- | ---------------------------------------------------------- |
-   | Organization/user | `dragoscirjan`                                             |
-   | Repository        | `pi-config`                                                |
-   | Workflow filename | `release.yml` — filename only                              |
-   | Environment       | `npm`                                                      |
-   | Allowed actions   | Direct `npm publish`; allow dist-tag management if offered |
+No permission for Actions to create PRs is needed. Only the release job has `contents: write` and `id-token: write`; CI stays read-only. Checkout does not persist a GitHub credential. npm authentication is exposed only to the publish step.
 
-6. In GitHub repository settings:
-   - Create/configure the `npm` environment, restrict deployments to `main`, and optionally require a reviewer.
-   - Under **Actions → General**, allow GitHub Actions to create pull requests.
-   - Add the repository **Actions variable** `NPM_PUBLISH_ENABLED` with value `true` only after the trusted publisher is ready.
+If npm authentication is missing or misconfigured, Release **fails visibly** rather than silently skipping. A PR cannot create an npm token or configure npm trusted publishing on behalf of the scope owner. Both workflows pin Node 24 and npm 11.21.2; the lockfile pins the Node-24-compatible semantic-release 25 toolchain and plugins. Keep the Conventional Commits preset on major 9 while release-notes-generator uses changelog writer 8; preset 10 requires writer 9.
 
-Do **not** add an `NPM_TOKEN`. GitHub supplies its normal `GITHUB_TOKEN`; npm publication uses short-lived OIDC credentials. The workflows pin Node 24 and npm 11.21.2. npm 11.21+ supports OIDC dist-tags; npm 12's changed registry JSON is deliberately excluded from publishing until the Changesets toolchain is upgraded and verified. It grants write/OIDC permissions only to the release job, after a separate read-only verification job passes. Publishing is restricted to this repository's `main` branch and can be disabled again by removing the variable or setting it to `false`.
-
-## Normal release cycle
-
-1. Make and test a change to the voice companion.
-2. Run `npm run changeset`. Select `@dragoscirjan/pi-voice-ptt`, choose a patch/minor/major bump, and describe the user-facing change.
-3. Commit the generated `.changeset/*.md` with the code and merge normally.
-4. The release action opens/updates a **chore: release voice companion** PR. Changesets updates only this package's version/changelog; `release:version` updates the npm lockfile too. It explicitly dispatches the read-only CI workflow for that PR because GitHub does not automatically trigger other workflows from a `GITHUB_TOKEN`-created PR.
-5. Review and merge the release PR. The next release run publishes the new version with provenance and creates its Git tag/GitHub release. Already-published versions are not republished.
-
-Useful commands:
+## Local checks and maintenance
 
 ```sh
-npm run release:status       # inspect pending changesets
-npm run release:verify       # lint, format, tests, voice typecheck, dry-run artifact audit
-npm run release:check        # inspect the real npm packlist; no publication
-npm run release:version      # apply pending version/changelog changes locally; no publication
+npm ci --ignore-scripts
+npm run release:verify  # full verification; never publishes
+npm run test:release    # artifact/auth/workflow/SemVer regression tests
+npm run release:check   # real npm dry-run packlist and import audit
 ```
 
-`npm run release:publish` is guarded and refuses to run outside the enabled GitHub Actions/OIDC environment. The only workstation publication path documented here is the deliberate, one-time direct `npm publish` bootstrap above.
+The release tests exercise initial/patch/minor/major versions, actual tag creation, and recovery from a publication failure **after** the tag push against a temporary **local** Git remote. Recovery tests mock npm/GitHub output state and verify that retries preserve tags and do not duplicate successful publication. Their npm plugin has publication disabled; they never publish to npm or GitHub. Physical microphone/GPU behavior still needs platform-specific manual verification.
 
-Keep the Changesets CLI and action compatible: this setup uses the maintained CLI v2/action v1 combination, with GitHub Actions pinned to immutable commits. Review coordinated major upgrades rather than switching only one side.
+`npm run release:publish` refuses workstation invocation, non-main refs, failed/untrusted CI events, and any checkout that differs from the successful CI SHA. It is not a local release command.
+
+`npm run release:check` validates the publication boundary, actual packlist, size, metadata, and relative imports. A second audit runs after semantic-release prepares the generated version and before npm publication. Keep that audit immediately after the npm plugin in `scripts/release-config.mjs` when changing release tooling.
 
 ## Install the published package
 
@@ -81,10 +73,6 @@ pi install npm:@juicesharp/rpiv-voice@2.15.0
 pi install npm:@dragoscirjan/pi-voice-ptt
 ```
 
-The upstream packages must be installed **through Pi** so their own commands are enabled. They are optional peers in npm metadata to prevent npm from silently installing an unconfigured second copy; they are required to use dictation. Pi provides the host SDK/TUI peers itself.
+The upstream packages must be installed **through Pi** so their own commands are enabled. They are optional peers in npm metadata to prevent npm from silently installing an unconfigured second copy; they are required to use dictation. Pi provides the host SDK/TUI peers itself. See the extension README for model/device/backend setup.
 
-Do not enable both the repository-local voice companion and its npm copy. For development, keep the local extension and omit the npm companion entry. For npm consumption on a machine with this checkout, use `pi config` to disable the local `agent/extensions/pi-voice-ptt/index.ts` resource before enabling the npm one. This task does not change your current Pi package settings.
-
-## Add another publishable extension later
-
-Prepare its scoped package identity, MIT/other chosen license, explicit package files, Pi manifest, and dependencies first. Then deliberately extend the release allowlist/tests, remove that workspace's `private` flag and Changesets ignore entry, and configure its own npm trusted publisher. Changesets can continue versioning packages independently from the same repository.
+Do not enable both the repository-local voice companion and its npm copy. For development, keep the local extension and omit the npm companion entry. For npm consumption on a machine with this checkout, use `pi config` to disable the local `agent/extensions/pi-voice-ptt/index.ts` resource before enabling the npm one. This change does not modify your current Pi package settings.
