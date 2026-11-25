@@ -12,7 +12,8 @@
       "command": "node",
       "args": [
         "~/.pi/agent/scripts/excalidraw-mcp.js"
-      ]
+      ],
+      "enabled": false
     },
     "codeindex_gitnexus": {
       "description": "Code graph context, dependency flows, impact analysis, and repository structure.",
@@ -71,7 +72,8 @@
       ],
       "env": {
         "MEMORY_FILE_PATH": ".memory.jsonl"
-      }
+      },
+      "enabled": false
     },
     "sequential_thinking": {
       "description": "Structured sequential reasoning for multi-step decisions and debugging.",

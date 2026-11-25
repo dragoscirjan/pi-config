@@ -12,6 +12,8 @@ pi install npm:@juicesharp/rpiv-voice@2.15.0
 pi install npm:@dragoscirjan/pi-voice-ptt
 ```
 
+`/voice-activate` checks for both required upstream packages before preparing voice. If either cannot be found, it shows a warning with the missing package names, exact `pi install` commands, and enable/reload instructions, then stops activation. Dependencies are not checked or installed automatically at startup.
+
 Use either the npm companion or this repository-local companion, not both. `pi config` can disable the local companion before enabling its npm copy. Keep the original voice/i18n packages enabled; npm peers alone do not enable their Pi resources.
 
 Requires **Pi 1.5.0+, Node 22.19+**, the interactive terminal UI and a terminal with Kitty press/repeat/release reporting, such as Ghostty. RPC, Telegram, Slack and terminals without key releases are not supported.
